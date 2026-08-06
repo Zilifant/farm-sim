@@ -66,20 +66,22 @@ export class RingProfiler implements Profiler {
   report(): SystemTimings[] {
     const out: SystemTimings[] = [];
     for (const [systemId, ring] of this.#rings) {
-      const sorted = Array.from(ring.buf.subarray(0, ring.filled)).sort(
-        (a, b) => a - b,
-      );
-      const n = sorted.length;
+      const values = Array.from(ring.buf.subarray(0, ring.filled));
+      const n = values.length;
       let sum = 0;
-      for (const d of sorted) {
+      let max = 0;
+      for (const d of values) {
         sum += d;
+        if (d > max) {
+          max = d;
+        }
       }
       out.push({
         systemId,
         samples: n,
-        p50Ms: percentile(sorted, 0.5),
-        p95Ms: percentile(sorted, 0.95),
-        maxMs: n > 0 ? sorted[n - 1]! : 0,
+        p50Ms: quantile(values, 0.5),
+        p95Ms: quantile(values, 0.95),
+        maxMs: max,
         meanMs: n > 0 ? sum / n : 0,
       });
     }
@@ -87,11 +89,13 @@ export class RingProfiler implements Profiler {
   }
 }
 
-function percentile(sorted: readonly number[], p: number): number {
-  const n = sorted.length;
+/** Nearest-rank quantile over an unsorted sample (0 for an empty one). */
+export function quantile(values: readonly number[], p: number): number {
+  const n = values.length;
   if (n === 0) {
     return 0;
   }
+  const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(n - 1, Math.max(0, Math.ceil(p * n) - 1));
   return sorted[idx]!;
 }

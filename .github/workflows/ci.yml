@@ -29,3 +29,12 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # Catches catastrophic slowdowns. The committed baseline was recorded
+      # on a different machine, so the tolerance is deliberately loose here
+      # (the plan anticipates CI-runner noise); run `pnpm bench:check`
+      # locally with the default ±20% for a strict comparison.
+      - name: Benchmark regression check
+        run: pnpm bench:check
+        env:
+          BENCH_TOLERANCE: "0.5"

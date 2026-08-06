@@ -72,6 +72,16 @@ describe("SAB Wa-Tor (Phase 3 acceptance)", () => {
     await sim.shutdown();
   }, 30_000);
 
+  it("profileTicks collects one per-tick compute timing per tick", async () => {
+    const sim = await createSharedWaTorSim({ ...CFG, workers: 2, batchTicks: 40, profileTicks: true });
+    await sim.run(100);
+    const timings = sim.tickTimingsMs();
+    expect(timings).toHaveLength(100);
+    expect(timings.every((t) => t >= 0)).toBe(true);
+    expect(timings.some((t) => t > 0)).toBe(true);
+    await sim.shutdown();
+  }, 30_000);
+
   it("debug write-guard mode produces the identical hash", async () => {
     const seq = await createWaTorSim(CFG);
     seq.run(200);

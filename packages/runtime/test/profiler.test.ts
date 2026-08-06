@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RingProfiler } from "@sim/runtime";
+import { RingProfiler, quantile } from "@sim/runtime";
 
 function makeProfiler(capacity?: number): {
   profiler: RingProfiler;
@@ -56,5 +56,17 @@ describe("RingProfiler", () => {
 
   it("rejects invalid capacity", () => {
     expect(() => new RingProfiler({ capacity: 0 })).toThrow(RangeError);
+  });
+});
+
+describe("quantile", () => {
+  it("computes nearest-rank quantiles on unsorted input", () => {
+    const values = [5, 1, 4, 2, 3];
+    expect(quantile(values, 0.5)).toBe(3);
+    expect(quantile(values, 0.95)).toBe(5);
+    expect(quantile(values, 0.01)).toBe(1);
+    expect(quantile([], 0.5)).toBe(0);
+    expect(quantile([7], 0.99)).toBe(7);
+    expect(values).toEqual([5, 1, 4, 2, 3]); // input untouched
   });
 });

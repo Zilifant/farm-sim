@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "recordedAt": "2026-08-06T03:50:39.953Z",
+  "machine": {
+    "cpus": 4,
+    "model": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "node": "v22.22.2"
+  },
+  "calibrationOpsPerSec": 757.2716079492013,
+  "metrics": {
+    "micro.rng.nextU32": {
+      "value": 13626474.618944436,
+      "unit": "ops/sec",
+      "perCalibration": 17994.170751821606
+    },
+    "micro.rng.nextF64": {
+      "value": 14586475.332898041,
+      "unit": "ops/sec",
+      "perCalibration": 19261.880651250456
+    },
+    "micro.rng.hashCell": {
+      "value": 15780052.101539502,
+      "unit": "ops/sec",
+      "perCalibration": 20838.034776286037
+    },
+    "micro.hash.fnv1a32-64KiB": {
+      "value": 12295.504359251856,
+      "unit": "ops/sec",
+      "perCalibration": 16.236584377631456
+    },
+    "micro.hash.wator-grid-30x30": {
+      "value": 38740.59513449363,
+      "unit": "ops/sec",
+      "perCalibration": 51.158124413786815
+    },
+    "micro.buffer.copy-1MiB": {
+      "value": 25573.06889621744,
+      "unit": "ops/sec",
+      "perCalibration": 33.770008841970096
+    },
+    "macro.seq.g255": {
+      "value": 933.5657061359543,
+      "unit": "ticks/sec",
+      "perCalibration": 1.232801674242327,
+      "p95TickMs": 1.2482749999999214
+    },
+    "macro.msg.g255.w4": {
+      "value": 887.978269147164,
+      "unit": "ticks/sec",
+      "perCalibration": 1.1726020886375694,
+      "p95TickMs": 1.6448419999996986
+    },
+    "macro.sab.g255.w4": {
+      "value": 2112.501871632652,
+      "unit": "ticks/sec",
+      "perCalibration": 2.789622441218424,
+      "p95TickMs": 0.5831319999997504
+    },
+    "macro.seq.g1020": {
+      "value": 54.066993064838485,
+      "unit": "ticks/sec",
+      "perCalibration": 0.07139709517336792,
+      "p95TickMs": 20.15232499999911
+    },
+    "macro.msg.g1020.w1": {
+      "value": 54.02969211455503,
+      "unit": "ticks/sec",
+      "perCalibration": 0.07134783814340417,
+      "p95TickMs": 20.41269999999895
+    },
+    "macro.sab.g1020.w1": {
+      "value": 60.68443381676604,
+      "unit": "ticks/sec",
+      "perCalibration": 0.08013562528919851,
+      "p95TickMs": 18.200133000000278
+    },
+    "macro.msg.g1020.w2": {
+      "value": 103.43927397007994,
+      "unit": "ticks/sec",
+      "perCalibration": 0.13659468133264382,
+      "p95TickMs": 10.953051000000414
+    },
+    "macro.sab.g1020.w2": {
+      "value": 111.01557809447297,
+      "unit": "ticks/sec",
+      "perCalibration": 0.14659941945416238,
+      "p95TickMs": 11.13248299999941
+    },
+    "macro.msg.g1020.w4": {
+      "value": 166.3125466007755,
+      "unit": "ticks/sec",
+      "perCalibration": 0.21962073429792703,
+      "p95TickMs": 9.894067000001087
+    },
+    "macro.sab.g1020.w4": {
+      "value": 187.14406894080605,
+      "unit": "ticks/sec",
+      "perCalibration": 0.24712938789243488,
+      "p95TickMs": 7.9567430000024615
+    },
+    "macro.msg.g1020.w8": {
+      "value": 151.6318157322869,
+      "unit": "ticks/sec",
+      "perCalibration": 0.20023438636888463,
+      "p95TickMs": 9.760662000000593
+    },
+    "macro.sab.g1020.w8": {
+      "value": 158.97572070331483,
+      "unit": "ticks/sec",
+      "perCalibration": 0.2099322343984922,
+      "p95TickMs": 11.717748000002757
+    },
+    "macro.seq.g2040": {
+      "value": 13.111082230164879,
+      "unit": "ticks/sec",
+      "perCalibration": 0.0173135795565762,
+      "p95TickMs": 74.46904500000164
+    },
+    "macro.msg.g2040.w1": {
+      "value": 13.032306684268791,
+      "unit": "ticks/sec",
+      "perCalibration": 0.017209554072101188,
+      "p95TickMs": 78.6494939999975
+    },
+    "macro.sab.g2040.w1": {
+      "value": 14.009110836439765,
+      "unit": "ticks/sec",
+      "perCalibration": 0.018499453418540833,
+      "p95TickMs": 79.85799899999984
+    },
+    "macro.msg.g2040.w2": {
+      "value": 25.805475233612466,
+      "unit": "ticks/sec",
+      "perCalibration": 0.03407690842060928,
+      "p95TickMs": 40.199955999996746
+    },
+    "macro.sab.g2040.w2": {
+      "value": 28.224598177050602,
+      "unit": "ticks/sec",
+      "perCalibration": 0.037271433235806645,
+      "p95TickMs": 41.792474000001675
+    },
+    "macro.msg.g2040.w4": {
+      "value": 47.38425255537475,
+      "unit": "ticks/sec",
+      "perCalibration": 0.0625723347580639,
+      "p95TickMs": 24.79826000000321
+    },
+    "macro.sab.g2040.w4": {
+      "value": 48.73505734102277,
+      "unit": "ticks/sec",
+      "perCalibration": 0.06435611322205015,
+      "p95TickMs": 27.406161999999313
+    },
+    "macro.msg.g2040.w8": {
+      "value": 43.44132044828437,
+      "unit": "ticks/sec",
+      "perCalibration": 0.05736557397936735,
+      "p95TickMs": 27.660185000000638
+    },
+    "macro.sab.g2040.w8": {
+      "value": 49.61186990777946,
+      "unit": "ticks/sec",
+      "perCalibration": 0.06551397066388824,
+      "p95TickMs": 24.801942999998573
+    }
+  }
+}

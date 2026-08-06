@@ -75,5 +75,25 @@ Phase 3 acceptance — 1020 stands in for 1024, grid dims must be multiples
 of 5): sequential 56 ticks/sec, message-passing ×4 126 ticks/sec,
 SAB+Atomics ×4 191 ticks/sec.
 
+## Benchmarks
+
+```sh
+pnpm bench            # quick set: tinybench micro (rng/hash/buffer) + macro
+pnpm bench -- --full  # adds the 1020²/2040² × 1/2/4/8-worker matrix
+pnpm bench:record     # rewrite bench/baselines.json (accept new numbers)
+pnpm bench:check      # re-measure quick set, fail on >20% regression
+```
+
+Baselines live in `bench/baselines.json` with raw values, machine info, and
+calibration-normalized figures (a fixed fnv1a32 workload timed at startup
+partially cancels machine-speed differences). CI runs `bench:check` with a
+loose ±50% tolerance (`BENCH_TOLERANCE`) since GitHub runners differ from
+the baseline machine and are noisy; run locally at the default ±20% for a
+strict comparison, and `bench:record` after intentional performance
+changes. Macro metrics report ticks/sec plus a p95 tick time (sequential:
+update-system span; message mode: main-thread exchange round trip; SAB:
+per-tick compute inside workers, max across workers, barrier wait
+excluded).
+
 Note: workers (Phase 2+) run compiled `.js` from `dist/`, so `pnpm build`
 must precede `pnpm test`.

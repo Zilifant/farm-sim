@@ -30,7 +30,13 @@ import { partitionRows } from "./parallel.js";
 import { FISH, SHARK } from "./rules.js";
 import { makeWaTorSnapshot, prepareWaTorRestore } from "./snapshot.js";
 import { BREED_AGE, ENERGY, SPECIES, resolveConfig, type WaTorConfig } from "./wator.js";
-import { CMD_SAB_RUN, type SabRunCommand, type WaTorSharedBoot } from "./wator-shared-worker.js";
+import {
+  CMD_SAB_RUN,
+  CMD_SAB_TIMINGS,
+  type SabRunCommand,
+  type SabTimingsReply,
+  type WaTorSharedBoot,
+} from "./wator-shared-worker.js";
 
 export interface SharedRecoveryOptions {
   /** Capture a snapshot each time this many ticks have elapsed. */
@@ -55,6 +61,8 @@ export interface SharedWaTorOptions extends Partial<WaTorConfig> {
   /** Restart-from-last-snapshot on worker crash. Without this the pool's
    * fail-fast policy stands: the first crash poisons the sim. */
   readonly recovery?: SharedRecoveryOptions;
+  /** Collect per-tick compute timings from the workers (benchmarking). */
+  readonly profileTicks?: boolean;
 }
 
 export interface SharedWaTorSim {
@@ -78,6 +86,9 @@ export interface SharedWaTorSim {
   /** Fault injection (tests): make a worker die abruptly with this exit
    * code. Real-thread adapters only. */
   injectCrash(workerIndex: number, code?: number): void;
+  /** With profileTicks: per-tick compute durations (ms), each the max
+   * across workers — the slowest worker gates the tick. */
+  tickTimingsMs(): readonly number[];
   stats(): {
     ticks: number;
     batches: number;
@@ -96,6 +107,7 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
     barrierTimeoutMs,
     record,
     recovery,
+    profileTicks = false,
     ...partial
   } = opts;
   const cfg = resolveConfig(partial);
@@ -156,6 +168,7 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
   let batches = 0;
   let restarts = 0;
   let lastSnapshot: Snapshot | null = null;
+  const tickTimings: number[] = [];
 
   function capture(): Snapshot {
     return makeWaTorSnapshot(cfg, tick, { species, energy, breedAge });
@@ -199,12 +212,34 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
       const target = tick + BigInt(ticks);
       while (tick < target) {
         const count = Math.min(batchTicks, Number(target - tick));
-        const cmd: SabRunCommand = { kind: CMD_SAB_RUN, startTick: tick, count };
+        const cmd: SabRunCommand = {
+          kind: CMD_SAB_RUN,
+          startTick: tick,
+          count,
+          ...(profileTicks ? { profile: true } : {}),
+        };
+        let replies;
         try {
-          await pool.exchange(() => ({ batch: { tick, commands: [cmd] } }));
+          replies = await pool.exchange(() => ({ batch: { tick, commands: [cmd] } }));
         } catch (err) {
           await recover(err); // rolls tick back to the last snapshot
           continue;
+        }
+        if (profileTicks) {
+          const perWorker = replies.map(
+            (env) =>
+              (env.batch?.commands.find((c) => c.kind === CMD_SAB_TIMINGS) as SabTimingsReply | undefined)
+                ?.durations ?? new Float64Array(count),
+          );
+          for (let i = 0; i < count; i += 1) {
+            let max = 0;
+            for (const d of perWorker) {
+              if (d[i]! > max) {
+                max = d[i]!;
+              }
+            }
+            tickTimings.push(max);
+          }
         }
         tick += BigInt(count);
         ticksRun += count;
@@ -255,6 +290,9 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
       }
       const crash: PoolCrashCommand = { kind: POOL_CRASH, code };
       handle.postBatch({ tick: null, commands: [crash] });
+    },
+    tickTimingsMs(): readonly number[] {
+      return tickTimings;
     },
     stats(): {
       ticks: number;

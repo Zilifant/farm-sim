@@ -18,6 +18,7 @@ import { WaTorSharedRegion } from "./wator-shared.js";
 import { BREED_AGE, ENERGY, SPECIES, type WaTorConfig } from "./wator.js";
 
 export const CMD_SAB_RUN = "wator.sab.run";
+export const CMD_SAB_TIMINGS = "wator.sab.timings";
 
 export interface WaTorSharedBoot extends WorkerBootData {
   readonly cfg: WaTorConfig;
@@ -34,6 +35,15 @@ export interface SabRunCommand extends SimCommand {
   readonly kind: typeof CMD_SAB_RUN;
   readonly startTick: bigint;
   readonly count: number;
+  /** Time each tick's compute (excluding the barrier wait) and reply with
+   * the raw durations for benchmark aggregation. */
+  readonly profile?: boolean;
+}
+
+export interface SabTimingsReply extends SimCommand {
+  readonly kind: typeof CMD_SAB_TIMINGS;
+  /** Per-tick runTick durations in ms, one per tick of the batch. */
+  readonly durations: Float64Array;
 }
 
 export function setupWaTorSharedWorker(port: PortLike, boot: WorkerBootData): void {
@@ -60,8 +70,21 @@ export function setupWaTorSharedWorker(port: PortLike, boot: WorkerBootData): vo
 
   serveWorker(port, {
     handlers: {
-      [CMD_SAB_RUN]: (cmd) => {
-        const { startTick, count } = cmd as SabRunCommand;
+      [CMD_SAB_RUN]: (cmd, ctx) => {
+        const { startTick, count, profile } = cmd as SabRunCommand;
+        if (profile === true) {
+          const durations = new Float64Array(count);
+          for (let i = 0; i < count; i += 1) {
+            const t0 = performance.now();
+            region.runTick(startTick + BigInt(i));
+            durations[i] = performance.now() - t0;
+            barrier.arrive();
+          }
+          const reply: SabTimingsReply = { kind: CMD_SAB_TIMINGS, durations };
+          ctx.reply(reply);
+          ctx.transfer(durations.buffer as ArrayBuffer);
+          return;
+        }
         for (let i = 0; i < count; i += 1) {
           region.runTick(startTick + BigInt(i));
           barrier.arrive();
