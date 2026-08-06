@@ -13,7 +13,8 @@ import {
   BREED_AGE,
   CensusSystem,
   ENERGY,
-  MOVED,
+  FISH,
+  SHARK,
   SPECIES,
   WaTorSystem,
   resolveConfig,
@@ -22,6 +23,9 @@ import {
 } from "./wator.js";
 
 export * from "./wator.js";
+export * from "./region.js";
+export * from "./wator-worker.js";
+export * from "./parallel.js";
 
 export const REFSIM_NAME = "@sim/refsim";
 export const FIXED_DT_MS = 1000 / 60;
@@ -39,7 +43,8 @@ export interface WaTorSim {
   readonly profiler: RingProfiler;
   step(): void;
   run(ticks: number): void;
-  /** FNV-1a over species/energy/breedAge buffers. */
+  /** FNV-1a over the owned rows of species/energy/breedAge (ghost rows
+   * excluded) — directly comparable with ParallelWaTorSim.stateHash(). */
   stateHash(): number;
   populations(): Populations;
 }
@@ -48,20 +53,18 @@ export async function createWaTorSim(
   config: Partial<WaTorConfig> = {},
 ): Promise<WaTorSim> {
   const cfg = resolveConfig(config);
-  const cells = cfg.width * cfg.height;
+  // Ghost-inclusive storage: rows 0 and height+1 mirror the torus wrap.
+  const cells = cfg.width * (cfg.height + 2);
 
   const buffers = new BufferRegistry();
   buffers.define(SPECIES, { type: Uint8Array, length: cells });
   buffers.define(ENERGY, { type: Int16Array, length: cells });
   buffers.define(BREED_AGE, { type: Int16Array, length: cells });
-  buffers.define(MOVED, { type: Uint8Array, length: cells });
 
   const census = new SimEventQueue<CensusEvent>();
   const scheduler = new SystemScheduler(buffers);
   scheduler.register(new WaTorSystem(cfg), { workerGroup: "main" });
-  scheduler.register(new CensusSystem(cfg.censusEveryNTicks, census), {
-    workerGroup: "main",
-  });
+  scheduler.register(new CensusSystem(cfg, census), { workerGroup: "main" });
 
   const profiler = new RingProfiler();
   const executor = new TickExecutor({
@@ -74,10 +77,12 @@ export async function createWaTorSim(
   await executor.init();
 
   let tick = 0n;
-  const stateViews = [
-    buffers.get(SPECIES),
-    buffers.get(ENERGY),
-    buffers.get(BREED_AGE),
+  const ownedStart = cfg.width;
+  const ownedEnd = (cfg.height + 1) * cfg.width;
+  const ownedViews = [
+    buffers.get(SPECIES).subarray(ownedStart, ownedEnd),
+    buffers.get(ENERGY).subarray(ownedStart, ownedEnd),
+    buffers.get(BREED_AGE).subarray(ownedStart, ownedEnd),
   ];
 
   return {
@@ -101,17 +106,17 @@ export async function createWaTorSim(
       }
     },
     stateHash(): number {
-      return hashBuffers(stateViews);
+      return hashBuffers(ownedViews);
     },
     populations(): Populations {
       const species = buffers.get<Uint8Array>(SPECIES);
       let fish = 0;
       let sharks = 0;
-      for (let i = 0; i < species.length; i += 1) {
+      for (let i = ownedStart; i < ownedEnd; i += 1) {
         const s = species[i]!;
-        if (s === 1) {
+        if (s === FISH) {
           fish += 1;
-        } else if (s === 2) {
+        } else if (s === SHARK) {
           sharks += 1;
         }
       }

@@ -2,24 +2,14 @@
 // A stream's state is derived purely from (rootSeed, streamId), so forking is
 // independent of how much the parent has been consumed.
 
+import { seedToU32 } from "./counter.js";
+
 export interface RngStream {
   readonly streamId: string;
   nextU32(): number;
   /** [0, 1), built from two u32 draws (53 mantissa bits) for determinism. */
   nextF64(): number;
   fork(childId: string): RngStream;
-}
-
-function fnv1a32String(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s.charCodeAt(i);
-    h ^= c & 0xff;
-    h = Math.imul(h, 0x01000193);
-    h ^= c >>> 8;
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
 }
 
 function splitmix32(seed: number): () => number {
@@ -44,7 +34,7 @@ export class Sfc32Stream implements RngStream {
   private constructor(rootSeed: string, streamId: string) {
     this.#rootSeed = rootSeed;
     this.streamId = streamId;
-    const mix = splitmix32(fnv1a32String(`${rootSeed}\u001f${streamId}`));
+    const mix = splitmix32(seedToU32(`${rootSeed}\u001f${streamId}`));
     this.#a = mix();
     this.#b = mix();
     this.#c = mix();

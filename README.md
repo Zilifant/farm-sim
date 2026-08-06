@@ -22,5 +22,9 @@ pnpm check   # build + lint + test (what CI runs)
 pnpm demo    # run Wa-Tor for 1000 ticks and print census + timings (after build)
 ```
 
+`pnpm demo [seed] [ticks] [workers]` — with `workers >= 1` the grid is
+partitioned into row strips across real worker threads with message-passed
+border exchange; the state hash is identical for any worker count.
+
 Note: workers (Phase 2+) run compiled `.js` from `dist/`, so `pnpm build`
 must precede `pnpm test`.

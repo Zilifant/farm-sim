@@ -10,7 +10,7 @@ import {
 
 describe("Wa-Tor determinism (Phase 1 acceptance)", () => {
   it("produces an identical state hash across 3 runs of 10k ticks", async () => {
-    const config = { width: 32, height: 32, seed: "acceptance" };
+    const config = { width: 30, height: 30, seed: "acceptance" };
     const hashes: number[] = [];
     const tickHashes: number[][] = [];
     for (let run = 0; run < 3; run += 1) {
@@ -32,8 +32,8 @@ describe("Wa-Tor determinism (Phase 1 acceptance)", () => {
   }, 60_000);
 
   it("different seeds diverge", async () => {
-    const a = await createWaTorSim({ width: 32, height: 32, seed: "one" });
-    const b = await createWaTorSim({ width: 32, height: 32, seed: "two" });
+    const a = await createWaTorSim({ width: 30, height: 30, seed: "one" });
+    const b = await createWaTorSim({ width: 30, height: 30, seed: "two" });
     a.run(100);
     b.run(100);
     expect(a.stateHash()).not.toBe(b.stateHash());
@@ -44,6 +44,11 @@ describe("Wa-Tor determinism (Phase 1 acceptance)", () => {
     const before = sim.stateHash();
     sim.step();
     expect(sim.stateHash()).not.toBe(before);
+  });
+
+  it("rejects grid dimensions that break the 5-phase coloring", async () => {
+    await expect(createWaTorSim({ width: 32, height: 30 })).rejects.toThrow(/multiple of 5/);
+    await expect(createWaTorSim({ width: 30, height: 16 })).rejects.toThrow(/multiple of 5/);
   });
 });
 
