@@ -22,18 +22,10 @@
 // enforce rowCount >= 2 whenever there is more than one region.
 
 import { hashCell, seedToU32, splitTick } from "@sim/runtime";
+import { EMPTY, FISH, SALT_ACT, SHARK, actCell, seedCell } from "./rules.js";
 import type { WaTorConfig } from "./wator.js";
 
-export const EMPTY = 0;
-export const FISH = 1;
-export const SHARK = 2;
-
-const SALT_ACT = 1;
-const SALT_INIT_KIND = 2;
-const SALT_INIT_AGE = 3;
-
-const COUNTER_MAX = 32767; // Int16 ceiling for ages/energy
-export { COUNTER_MAX };
+export { COUNTER_MAX, EMPTY, FISH, SHARK } from "./rules.js";
 
 export interface RegionStorage {
   readonly species: Uint8Array;
@@ -108,26 +100,15 @@ export class WaTorRegion {
   /** Seed owned and ghost rows from per-cell hashes of global coordinates —
    * every region derives the identical initial state for the rows it sees. */
   seed(): void {
-    const { width: w, height: h, fishDensity, sharkDensity, fishBreedAge, sharkBreedAge, sharkInitialEnergy } = this.cfg;
+    const { width: w, height: h } = this.cfg;
     for (let r = 0; r <= this.rowCount + 1; r += 1) {
       const gy = (((this.rowStart + r - 1) % h) + h) % h;
       for (let x = 0; x < w; x += 1) {
-        const gIdx = gy * w + x;
+        const { sp, en, ba } = seedCell(this.cfg, this.#seedHash, gy * w + x);
         const idx = r * w + x;
-        const roll = hashCell(this.#seedHash, 0, 0, gIdx, SALT_INIT_KIND) / 4294967296;
-        if (roll < sharkDensity) {
-          this.species[idx] = SHARK;
-          this.energy[idx] = sharkInitialEnergy;
-          this.breedAge[idx] = hashCell(this.#seedHash, 0, 0, gIdx, SALT_INIT_AGE) % sharkBreedAge;
-        } else if (roll < sharkDensity + fishDensity) {
-          this.species[idx] = FISH;
-          this.energy[idx] = 0;
-          this.breedAge[idx] = hashCell(this.#seedHash, 0, 0, gIdx, SALT_INIT_AGE) % fishBreedAge;
-        } else {
-          this.species[idx] = EMPTY;
-          this.energy[idx] = 0;
-          this.breedAge[idx] = 0;
-        }
+        this.species[idx] = sp;
+        this.energy[idx] = en;
+        this.breedAge[idx] = ba;
       }
     }
   }
@@ -145,46 +126,31 @@ export class WaTorRegion {
       const base = r * w;
       for (let x = x0; x < w; x += 5) {
         const idx = base + x;
-        const sp = this.species[idx]!;
-        if (sp === EMPTY) {
+        if (this.species[idx]! === EMPTY) {
           continue;
         }
         const rand = hashCell(this.#seedHash, tickLo, tickHi, gy * w + x, SALT_ACT);
-        if (sp === FISH) {
-          this.#fishStep(idx, x, base, rand);
-        } else {
-          this.#sharkStep(idx, x, base, rand);
-        }
+        // Neighbors in fixed up/right/down/left order; toroidal in x within
+        // the row, ±width across rows (ghost rows cover the y wrap).
+        actCell(
+          this.cfg,
+          this.species,
+          this.energy,
+          this.breedAge,
+          idx,
+          idx - w,
+          base + (x === w - 1 ? 0 : x + 1),
+          idx + w,
+          base + (x === 0 ? w - 1 : x - 1),
+          rand,
+          this.#writeCell,
+        );
       }
     }
   }
 
-  /** Von Neumann neighbors in fixed up/right/down/left order; toroidal in x
-   * within the row, ±width across rows (ghost rows cover the y wrap). */
-  #pickNeighbor(idx: number, x: number, base: number, target: number, rand: number): number {
-    const w = this.cfg.width;
-    const n0 = idx - w;
-    const n1 = base + (x === w - 1 ? 0 : x + 1);
-    const n2 = idx + w;
-    const n3 = base + (x === 0 ? w - 1 : x - 1);
-    let c0 = -1;
-    let c1 = -1;
-    let c2 = -1;
-    let c3 = -1;
-    let count = 0;
-    if (this.species[n0]! === target) { c0 = n0; count += 1; }
-    if (this.species[n1]! === target) { if (count === 0) c0 = n1; else if (count === 1) c1 = n1; count += 1; }
-    if (this.species[n2]! === target) { if (count === 0) c0 = n2; else if (count === 1) c1 = n2; else c2 = n2; count += 1; }
-    if (this.species[n3]! === target) { if (count === 0) c0 = n3; else if (count === 1) c1 = n3; else if (count === 2) c2 = n3; else c3 = n3; count += 1; }
-    if (count === 0) {
-      return -1;
-    }
-    const pick = rand % count;
-    return pick === 0 ? c0 : pick === 1 ? c1 : pick === 2 ? c2 : c3;
-  }
-
   /** Write a full cell; ghost-row writes are logged as outgoing migrations. */
-  #writeCell(idx: number, sp: number, en: number, ba: number): void {
+  readonly #writeCell = (idx: number, sp: number, en: number, ba: number): void => {
     this.species[idx] = sp;
     this.energy[idx] = en;
     this.breedAge[idx] = ba;
@@ -194,59 +160,7 @@ export class WaTorRegion {
     } else if (idx >= (this.rowCount + 1) * w) {
       logMigration(this.#downLog, idx - (this.rowCount + 1) * w, sp, en, ba);
     }
-  }
-
-  #fishStep(idx: number, x: number, base: number, rand: number): void {
-    const target = this.#pickNeighbor(idx, x, base, EMPTY, rand);
-    const age = Math.min(this.breedAge[idx]! + 1, COUNTER_MAX);
-    if (target < 0) {
-      this.breedAge[idx] = age;
-      return;
-    }
-    if (age >= this.cfg.fishBreedAge) {
-      this.#writeCell(target, FISH, 0, 0);
-      // Offspring stays behind; both counters restart.
-      this.breedAge[idx] = 0;
-    } else {
-      this.#writeCell(target, FISH, 0, age);
-      this.species[idx] = EMPTY;
-      this.breedAge[idx] = 0;
-    }
-  }
-
-  #sharkStep(idx: number, x: number, base: number, rand: number): void {
-    const energy = this.energy[idx]! - 1;
-    if (energy <= 0) {
-      this.species[idx] = EMPTY;
-      this.energy[idx] = 0;
-      this.breedAge[idx] = 0;
-      return;
-    }
-    let fed = energy;
-    let target = this.#pickNeighbor(idx, x, base, FISH, rand);
-    if (target >= 0) {
-      fed = Math.min(energy + this.cfg.sharkEnergyPerFish, this.cfg.sharkMaxEnergy);
-    } else {
-      target = this.#pickNeighbor(idx, x, base, EMPTY, rand);
-    }
-    const age = Math.min(this.breedAge[idx]! + 1, COUNTER_MAX);
-    if (target < 0) {
-      this.energy[idx] = fed;
-      this.breedAge[idx] = age;
-      return;
-    }
-    if (age >= this.cfg.sharkBreedAge) {
-      this.#writeCell(target, SHARK, fed, 0);
-      this.species[idx] = SHARK;
-      this.energy[idx] = this.cfg.sharkInitialEnergy;
-      this.breedAge[idx] = 0;
-    } else {
-      this.#writeCell(target, SHARK, fed, age);
-      this.species[idx] = EMPTY;
-      this.energy[idx] = 0;
-      this.breedAge[idx] = 0;
-    }
-  }
+  };
 
   /** Fresh copies for transfer: up = data the up-neighbor needs, down = data
    * the down-neighbor needs. Migration logs are retained until borders are

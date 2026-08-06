@@ -24,8 +24,12 @@ import {
 
 export * from "./wator.js";
 export * from "./region.js";
+export * from "./rules.js";
 export * from "./wator-worker.js";
 export * from "./parallel.js";
+export * from "./wator-shared.js";
+export * from "./wator-shared-worker.js";
+export * from "./parallel-shared.js";
 
 export const REFSIM_NAME = "@sim/refsim";
 export const FIXED_DT_MS = 1000 / 60;
