@@ -9,6 +9,13 @@ simulation. See [sim-runtime-plan.md](./sim-runtime-plan.md) for the full plan.
   (clock, scheduler, workers, memory, messaging, rng, events, snapshot, profile).
 - `packages/refsim` — `@sim/refsim`: Wa-Tor predator-prey reference simulation.
 
+The runtime has zero Wa-Tor imports — enforced by a lint rule and proven by
+`packages/runtime/test/second-sim.test.ts`, a complete second sim built from
+runtime APIs alone. **To build your own sim, start with
+[docs/building-a-sim.md](./docs/building-a-sim.md)** — it is written to be
+sufficient without reading refsim source. The runtime stays a single package
+until a second real simulation forces a split.
+
 ## Development
 
 Requires Node >= 22 and pnpm 10.

@@ -31,8 +31,8 @@ describe("counter-based rng", () => {
   });
 
   it("seedToU32 is deterministic and seed-sensitive", () => {
-    expect(seedToU32("wa-tor")).toBe(seedToU32("wa-tor"));
-    expect(seedToU32("wa-tor")).not.toBe(seedToU32("wa-tor2"));
+    expect(seedToU32("alpha")).toBe(seedToU32("alpha"));
+    expect(seedToU32("alpha")).not.toBe(seedToU32("alpha2"));
     expect(seedToU32(42)).toBe(seedToU32("42"));
   });
 

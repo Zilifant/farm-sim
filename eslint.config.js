@@ -15,4 +15,23 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Phase 7 boundary: the runtime must not know the reference simulation
+    // exists. Domain code depends on @sim/runtime, never the reverse.
+    files: ["packages/runtime/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@sim/refsim", "@sim/refsim/*", "**/refsim/**", "**/wator*"],
+              message:
+                "@sim/runtime must have zero Wa-Tor/refsim imports (Phase 7 extraction boundary).",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
