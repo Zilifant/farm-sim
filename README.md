@@ -15,11 +15,18 @@ simulation. See [sim-runtime-plan.md](./sim-runtime-plan.md) for the full plan.
   closing the server leaves the simulation ticking, and lint rules keep
   Express out of the sim packages and internals out of the server.
 
-The runtime has zero Wa-Tor imports — enforced by a lint rule and proven by
-`packages/runtime/test/second-sim.test.ts`, a complete second sim built from
-runtime APIs alone. **To build your own sim, start with
-[docs/building-a-sim.md](./docs/building-a-sim.md)** — it is written to be
-sufficient without reading refsim source. The runtime stays a single package
+Wa-Tor is a demo/placeholder: it proves the runtime works and serves as the
+worked example of every pattern, and it is meant to be replaced by your
+simulation. The runtime has zero Wa-Tor imports — enforced by a lint rule
+and proven by `packages/runtime/test/second-sim.test.ts`, a complete second
+sim built from runtime APIs alone.
+
+**To build your own sim**: start with
+[docs/building-a-sim.md](./docs/building-a-sim.md) (how to design and build
+on the runtime — written to be sufficient without reading refsim source),
+then follow [docs/replacing-the-reference-sim.md](./docs/replacing-the-reference-sim.md)
+(the step-by-step recipe for swapping Wa-Tor out: every touchpoint, in
+order, with verification commands). The runtime stays a single package
 until a second real simulation forces a split.
 
 ## Development

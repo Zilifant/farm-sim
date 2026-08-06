@@ -221,4 +221,6 @@ divergence across seeds; hash-identical across 1/2/4 workers; save at T →
 restore → 2T equality; replay-log reproduction; crash → fail-fast/recovery.
 
 For a fuller worked example (toroidal grid, border exchange, all three
-execution modes), see `@sim/refsim` — but nothing above requires it.
+execution modes), see `@sim/refsim` — but nothing above requires it. When
+you are ready to replace it with your own simulation, follow the
+step-by-step recipe in `docs/replacing-the-reference-sim.md`.
