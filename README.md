@@ -19,6 +19,7 @@ pnpm build   # tsc -b project references
 pnpm test    # vitest
 pnpm lint    # eslint
 pnpm check   # build + lint + test (what CI runs)
+pnpm demo    # run Wa-Tor for 1000 ticks and print census + timings (after build)
 ```
 
 Note: workers (Phase 2+) run compiled `.js` from `dist/`, so `pnpm build`

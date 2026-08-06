@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
+    "demo": "node packages/refsim/dist/main.js",
     "check": "pnpm build && pnpm lint && pnpm test"
   },
   "devDependencies": {
