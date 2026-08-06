@@ -57,6 +57,19 @@ External `spawn` commands recorded to a `ReplayLog` replay exactly:
 (seed, config, log) reproduces a run's state hash in the sequential and SAB
 modes.
 
+## Crash handling
+
+The worker pool fails fast: one worker error or unexpected exit rejects all
+in-flight work with a diagnostic, terminates the surviving workers (no
+orphans — a worker blocked in the tick barrier is cut short, not waited
+out), and poisons the pool. `shutdown()` always resolves within its timeout
+and reports every worker's exit code. The SAB driver can additionally opt
+into `recovery: { snapshotEveryTicks }` — on a crash it respawns a fresh
+pool and barrier, restores the last snapshot, and deterministically
+re-simulates the lost ticks (`stats().restarts` counts these). Crash
+injection for tests: `sim.injectCrash(worker, exitCode)` /
+`TestWorkerHandle.simulateCrash()`.
+
 Throughput (`node packages/refsim/dist/bench.js 1020 100 4`, this container,
 Phase 3 acceptance — 1020 stands in for 1024, grid dims must be multiples
 of 5): sequential 56 ticks/sec, message-passing ×4 126 ticks/sec,

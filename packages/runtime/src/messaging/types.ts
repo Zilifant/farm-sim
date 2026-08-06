@@ -27,3 +27,11 @@ export interface MessageEnvelope {
 
 export const POOL_SYNC = "pool.sync";
 export const POOL_SHUTDOWN = "pool.shutdown";
+/** Fault injection: the worker dies without replying, like a real crash. */
+export const POOL_CRASH = "pool.crash";
+
+export interface PoolCrashCommand extends SimCommand {
+  readonly kind: typeof POOL_CRASH;
+  /** Worker exit code (default 1). */
+  readonly code?: number;
+}

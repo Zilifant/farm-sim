@@ -32,11 +32,22 @@ interface Pending {
   reject(err: Error): void;
 }
 
+/**
+ * Crash policy: fail-fast. A worker error or unexpected exit rejects every
+ * pending reply, terminates the remaining workers (no orphans), and poisons
+ * the pool — later exchanges throw the failure diagnostic. Recovery
+ * (restart-from-snapshot) is a driver concern layered on top via
+ * onFailure(); the pool itself stays dead once failed. shutdown() is always
+ * allowed so callers can collect exit codes.
+ */
 export class DefaultWorkerPool implements WorkerPool {
   readonly size: number;
   readonly #opts: WorkerPoolOptions;
   readonly #handles: WorkerHandle[] = [];
   readonly #pending: Array<Map<number, Pending>> = [];
+  readonly #failureCbs: Array<(err: Error) => void> = [];
+  #failure: Error | null = null;
+  #shuttingDown = false;
 
   constructor(opts: WorkerPoolOptions) {
     if (!Number.isInteger(opts.size) || opts.size < 1) {
@@ -48,6 +59,15 @@ export class DefaultWorkerPool implements WorkerPool {
 
   get handles(): readonly WorkerHandle[] {
     return this.#handles;
+  }
+
+  /** The diagnostic that poisoned the pool, if a worker has crashed. */
+  get failure(): Error | null {
+    return this.#failure;
+  }
+
+  onFailure(cb: (err: Error) => void): void {
+    this.#failureCbs.push(cb);
   }
 
   async spawnAll(): Promise<void> {
@@ -71,22 +91,23 @@ export class DefaultWorkerPool implements WorkerPool {
           entry.resolve(env);
         }
       });
-      const failAll = (err: Error): void => {
-        for (const [seq, entry] of pending) {
-          pending.delete(seq);
-          entry.reject(err);
-        }
-      };
-      handle.onError((err) => failAll(new Error(`worker ${i} errored: ${err.message}`)));
-      handle.onExit((code) => failAll(new Error(`worker ${i} exited (code ${code}) with replies pending`)));
+      handle.onError((err) => {
+        this.#rejectPending(i, new Error(`worker ${i} errored: ${err.message}`));
+        this.#failFast(new Error(`worker ${i} crashed: ${err.message}`));
+      });
+      handle.onExit((code) => {
+        this.#rejectPending(i, new Error(`worker ${i} exited (code ${code}) with replies pending`));
+        this.#failFast(new Error(`worker ${i} exited unexpectedly with code ${code}`));
+      });
     }
   }
 
   /** One round: post a batch to every worker, await one reply from each.
    * This is the pool's synchronization primitive — resolving means every
-   * worker finished its batch. */
-  exchange(make: (index: number) => ExchangeRequest): Promise<MessageEnvelope[]> {
-    this.#assertSpawned();
+   * worker finished its batch. Async so a poisoned pool rejects rather
+   * than throwing synchronously. */
+  async exchange(make: (index: number) => ExchangeRequest): Promise<MessageEnvelope[]> {
+    this.#assertUsable();
     return Promise.all(
       this.#handles.map((handle, i) => {
         const { batch, transfer } = make(i);
@@ -105,7 +126,7 @@ export class DefaultWorkerPool implements WorkerPool {
   }
 
   broadcast(batch: CommandBatch): void {
-    this.#assertSpawned();
+    this.#assertUsable();
     for (const handle of this.#handles) {
       handle.postBatch(batch);
     }
@@ -113,10 +134,13 @@ export class DefaultWorkerPool implements WorkerPool {
 
   async shutdown(opts: { graceful: boolean; timeoutMs: number }): Promise<number[]> {
     this.#assertSpawned();
-    if (!opts.graceful) {
+    this.#shuttingDown = true;
+    if (!opts.graceful || this.#failure !== null) {
       return Promise.all(this.#handles.map((h) => h.terminate()));
     }
-    this.broadcast({ tick: null, commands: [{ kind: POOL_SHUTDOWN }] });
+    for (const handle of this.#handles) {
+      handle.postBatch({ tick: null, commands: [{ kind: POOL_SHUTDOWN }] });
+    }
     return Promise.all(
       this.#handles.map(async (handle) => {
         const code = await withTimeout(handle.waitExit(), opts.timeoutMs);
@@ -128,9 +152,44 @@ export class DefaultWorkerPool implements WorkerPool {
     );
   }
 
+  #rejectPending(worker: number, err: Error): void {
+    const pending = this.#pending[worker]!;
+    for (const [seq, entry] of pending) {
+      pending.delete(seq);
+      entry.reject(err);
+    }
+  }
+
+  /** One crash poisons the pool: reject everything in flight, terminate the
+   * survivors so no worker outlives the failure. */
+  #failFast(cause: Error): void {
+    if (this.#failure !== null || this.#shuttingDown) {
+      return;
+    }
+    const err = new Error(`worker pool failed: ${cause.message} — terminating remaining workers`);
+    this.#failure = err;
+    for (let i = 0; i < this.#handles.length; i += 1) {
+      this.#rejectPending(i, err);
+      void this.#handles[i]!.terminate().catch(() => undefined);
+    }
+    for (const cb of this.#failureCbs) {
+      cb(err);
+    }
+  }
+
   #assertSpawned(): void {
     if (this.#handles.length === 0) {
       throw new Error("pool not spawned — call spawnAll() first");
+    }
+  }
+
+  #assertUsable(): void {
+    this.#assertSpawned();
+    if (this.#failure !== null) {
+      throw this.#failure;
+    }
+    if (this.#shuttingDown) {
+      throw new Error("pool is shutting down");
     }
   }
 }

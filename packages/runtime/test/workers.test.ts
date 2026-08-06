@@ -146,6 +146,63 @@ describe("DefaultWorkerPool with TestWorkerAdapter", () => {
   });
 });
 
+describe("fail-fast crash policy", () => {
+  it("one crash rejects in-flight work, terminates the survivors, and poisons the pool", async () => {
+    const adapter = new TestWorkerAdapter(() => {
+      // Workers never reply — the exchange stays pending until the crash.
+    });
+    const pool = makePool(adapter, 3);
+    await pool.spawnAll();
+    const failures: string[] = [];
+    pool.onFailure((err) => failures.push(err.message));
+
+    const exchange = pool.exchange(() => ({ batch: { tick: null, commands: [{ kind: "echo" }] } }));
+    void adapter.spawned[1]!.simulateCrash(new Error("boom"));
+    await expect(exchange).rejects.toThrow(/worker 1/);
+
+    // No orphans: every other worker was terminated by the policy.
+    const codes = await Promise.all(adapter.spawned.map((h) => h.waitExit()));
+    expect(codes).toHaveLength(3);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatch(/worker pool failed: worker 1 crashed: boom/);
+
+    // Poisoned: later use surfaces the same diagnostic instead of hanging.
+    expect(() => pool.broadcast({ tick: null, commands: [] })).toThrow(/worker pool failed/);
+    await expect(pool.exchange(() => ({ batch: { tick: null, commands: [] } }))).rejects.toThrow(/worker pool failed/);
+
+    // shutdown() still works after failure and yields the exit codes.
+    const shutdownCodes = await pool.shutdown({ graceful: true, timeoutMs: 100 });
+    expect(shutdownCodes).toHaveLength(3);
+  });
+
+  it("an unexpected silent exit also triggers fail-fast", async () => {
+    const adapter = new TestWorkerAdapter((port) => {
+      port.on("message", () => {
+        port.close(); // dies without replying or being asked to shut down
+      });
+    });
+    const pool = makePool(adapter, 2);
+    await pool.spawnAll();
+    await expect(
+      pool.exchange(() => ({ batch: { tick: null, commands: [{ kind: "echo" }] } })),
+    ).rejects.toThrow(/worker \d/);
+    expect(pool.failure?.message).toMatch(/exited unexpectedly/);
+    const codes = await pool.shutdown({ graceful: true, timeoutMs: 100 });
+    expect(codes).toHaveLength(2);
+  });
+
+  it("graceful shutdown exits are not treated as failures", async () => {
+    const pool = makePool(echoAdapter(), 2);
+    await pool.spawnAll();
+    const failures: Error[] = [];
+    pool.onFailure((err) => failures.push(err));
+    const codes = await pool.shutdown({ graceful: true, timeoutMs: 1000 });
+    expect(codes).toEqual([0, 0]);
+    expect(failures).toEqual([]);
+    expect(pool.failure).toBeNull();
+  });
+});
+
 describe("serveWorker", () => {
   it("processes batches strictly in arrival order", async () => {
     const order: number[] = [];

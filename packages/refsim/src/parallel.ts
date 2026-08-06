@@ -8,8 +8,10 @@
 import {
   DefaultWorkerPool,
   NodeWorkerAdapter,
+  POOL_CRASH,
   hashBuffers,
   type CommandBatch,
+  type PoolCrashCommand,
   type Snapshot,
   type WorkerAdapter,
 } from "@sim/runtime";
@@ -56,6 +58,9 @@ export interface ParallelWaTorSim {
   captureSnapshot(): Promise<Snapshot>;
   /** Migrates if needed, validates config, scatters rows + ghosts back. */
   restoreSnapshot(s: Snapshot): Promise<void>;
+  /** Fault injection (tests): make a worker die abruptly with this exit
+   * code. Real-thread adapters only. */
+  injectCrash(workerIndex: number, code?: number): void;
   /** Message counters per worker — the ≤1 postMessage/worker/tick evidence. */
   stats(): { ticks: number; snapshots: number; perWorker: WorkerMessagingStats[] };
   shutdown(): Promise<number[]>;
@@ -228,6 +233,14 @@ export async function createParallelWaTorSim(
       // Stale border payloads describe pre-restore state.
       pending = new Array<PendingBorders | null>(workers).fill(null);
       tick = restoredTick;
+    },
+    injectCrash(workerIndex: number, code = 1): void {
+      const handle = pool.handles[workerIndex];
+      if (handle === undefined) {
+        throw new Error(`no worker ${workerIndex}`);
+      }
+      const crash: PoolCrashCommand = { kind: POOL_CRASH, code };
+      handle.postBatch({ tick: null, commands: [crash] });
     },
     stats(): { ticks: number; snapshots: number; perWorker: WorkerMessagingStats[] } {
       return {

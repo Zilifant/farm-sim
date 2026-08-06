@@ -5,14 +5,22 @@
 // ticks. Main never touches Atomics.wait — awaiting the batch replies is its
 // barrier — and it reads state directly from the SABs while workers sit
 // idle between batches.
+//
+// Crash handling: the pool fails fast (one crash terminates all workers,
+// no orphans). With `recovery` enabled the driver additionally keeps
+// periodic snapshots and, on a crash, respawns a fresh pool with a fresh
+// barrier, restores the last snapshot, and deterministically re-simulates
+// the lost ticks — the plan's restart-from-last-snapshot policy.
 
 import {
   AtomicsBarrier,
   DefaultWorkerPool,
   NodeWorkerAdapter,
+  POOL_CRASH,
   RowRegionMap,
   SharedMemoryLayout,
   hashBuffers,
+  type PoolCrashCommand,
   type ReplayLog,
   type Snapshot,
   type WorkerAdapter,
@@ -24,6 +32,16 @@ import { makeWaTorSnapshot, prepareWaTorRestore } from "./snapshot.js";
 import { BREED_AGE, ENERGY, SPECIES, resolveConfig, type WaTorConfig } from "./wator.js";
 import { CMD_SAB_RUN, type SabRunCommand, type WaTorSharedBoot } from "./wator-shared-worker.js";
 
+export interface SharedRecoveryOptions {
+  /** Capture a snapshot each time this many ticks have elapsed. */
+  readonly snapshotEveryTicks: number;
+  /** Crash budget before giving up and rethrowing (default 1). */
+  readonly maxRestarts?: number;
+  // Note: spawn commands injected after the last snapshot are not replayed
+  // by recovery — re-simulation covers only the closed-system rules. Keep a
+  // ReplayLog and replay it externally if commands must survive a crash.
+}
+
 export interface SharedWaTorOptions extends Partial<WaTorConfig> {
   readonly workers: number;
   readonly adapter?: WorkerAdapter;
@@ -34,6 +52,9 @@ export interface SharedWaTorOptions extends Partial<WaTorConfig> {
   readonly barrierTimeoutMs?: number;
   /** Externally injected commands (spawn) are recorded here for replay. */
   readonly record?: ReplayLog;
+  /** Restart-from-last-snapshot on worker crash. Without this the pool's
+   * fail-fast policy stands: the first crash poisons the sim. */
+  readonly recovery?: SharedRecoveryOptions;
 }
 
 export interface SharedWaTorSim {
@@ -54,12 +75,29 @@ export interface SharedWaTorSim {
   captureSnapshot(): Snapshot;
   /** Migrates if needed, validates config, overwrites the SABs directly. */
   restoreSnapshot(s: Snapshot): void;
-  stats(): { ticks: number; batches: number; perWorker: { mainPosts: number; workerPosts: number }[] };
+  /** Fault injection (tests): make a worker die abruptly with this exit
+   * code. Real-thread adapters only. */
+  injectCrash(workerIndex: number, code?: number): void;
+  stats(): {
+    ticks: number;
+    batches: number;
+    restarts: number;
+    perWorker: { mainPosts: number; workerPosts: number }[];
+  };
   shutdown(): Promise<number[]>;
 }
 
 export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<SharedWaTorSim> {
-  const { workers, adapter, debug = false, batchTicks = 256, barrierTimeoutMs, record, ...partial } = opts;
+  const {
+    workers,
+    adapter,
+    debug = false,
+    batchTicks = 256,
+    barrierTimeoutMs,
+    record,
+    recovery,
+    ...partial
+  } = opts;
   const cfg = resolveConfig(partial);
   if (!Number.isInteger(workers) || workers < 1) {
     throw new Error("workers must be an integer >= 1");
@@ -67,6 +105,10 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
   if (!Number.isInteger(batchTicks) || batchTicks < 1) {
     throw new Error("batchTicks must be an integer >= 1");
   }
+  if (recovery !== undefined && (!Number.isInteger(recovery.snapshotEveryTicks) || recovery.snapshotEveryTicks < 1)) {
+    throw new Error("recovery.snapshotEveryTicks must be an integer >= 1");
+  }
+  const maxRestarts = recovery?.maxRestarts ?? 1;
   const strips = partitionRows(cfg.height, workers);
   const regionMap = new RowRegionMap({ width: cfg.width, height: cfg.height, strips });
   const cells = cfg.width * cfg.height;
@@ -80,30 +122,68 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
   const energy = handles.view<Int16Array>(ENERGY);
   const breedAge = handles.view<Int16Array>(BREED_AGE);
 
-  const barrier = AtomicsBarrier.allocate(workers, barrierTimeoutMs);
-  const pool = new DefaultWorkerPool({
-    adapter: adapter ?? new NodeWorkerAdapter(),
-    entry: new URL("./wator-shared-worker-entry.js", import.meta.url),
-    size: workers,
-    boot: (i): WaTorSharedBoot => ({
-      cfg,
-      workerIndex: i,
-      strips,
-      manifest: handles.manifest(),
-      barrierSab: barrier.sab,
-      parties: workers,
-      debug,
-      ...(barrierTimeoutMs !== undefined ? { barrierTimeoutMs } : {}),
-    }),
-  });
-  await pool.spawnAll();
-  // Seeding happens synchronously in each worker's boot; this round trip
-  // guarantees all rows are seeded before the first tick reads any of them.
-  await pool.barrier();
+  const workerAdapter = adapter ?? new NodeWorkerAdapter();
+  let pool!: DefaultWorkerPool;
+
+  async function spawnPool(): Promise<void> {
+    // A fresh barrier every (re)spawn: a crash can leave the old one
+    // mid-generation with a stale arrival count.
+    const barrier = AtomicsBarrier.allocate(workers, barrierTimeoutMs);
+    pool = new DefaultWorkerPool({
+      adapter: workerAdapter,
+      entry: new URL("./wator-shared-worker-entry.js", import.meta.url),
+      size: workers,
+      boot: (i): WaTorSharedBoot => ({
+        cfg,
+        workerIndex: i,
+        strips,
+        manifest: handles.manifest(),
+        barrierSab: barrier.sab,
+        parties: workers,
+        debug,
+        ...(barrierTimeoutMs !== undefined ? { barrierTimeoutMs } : {}),
+      }),
+    });
+    await pool.spawnAll();
+    // Seeding happens synchronously in each worker's boot; this round trip
+    // guarantees all rows are seeded before the first tick reads any of them.
+    await pool.barrier();
+  }
+  await spawnPool();
 
   let tick = 0n;
   let ticksRun = 0;
   let batches = 0;
+  let restarts = 0;
+  let lastSnapshot: Snapshot | null = null;
+
+  function capture(): Snapshot {
+    return makeWaTorSnapshot(cfg, tick, { species, energy, breedAge });
+  }
+
+  function restore(s: Snapshot): void {
+    const { tick: restoredTick, state } = prepareWaTorRestore(cfg, s);
+    species.set(state.species);
+    energy.set(state.energy);
+    breedAge.set(state.breedAge);
+    tick = restoredTick;
+  }
+
+  if (recovery !== undefined) {
+    lastSnapshot = capture(); // tick 0 baseline — a crash is always recoverable
+  }
+  let lastSnapshotTick = 0n;
+
+  async function recover(cause: unknown): Promise<void> {
+    if (recovery === undefined || lastSnapshot === null || restarts >= maxRestarts) {
+      throw cause;
+    }
+    restarts += 1;
+    // Fail-fast already terminated the workers; collect them so none orphan.
+    await pool.shutdown({ graceful: false, timeoutMs: 2000 });
+    await spawnPool(); // respawned workers re-seed; the restore overwrites it
+    restore(lastSnapshot);
+  }
 
   return {
     config: cfg,
@@ -116,15 +196,23 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
       if (!Number.isInteger(ticks) || ticks < 0) {
         throw new Error("ticks must be an integer >= 0");
       }
-      let remaining = ticks;
-      while (remaining > 0) {
-        const count = Math.min(batchTicks, remaining);
+      const target = tick + BigInt(ticks);
+      while (tick < target) {
+        const count = Math.min(batchTicks, Number(target - tick));
         const cmd: SabRunCommand = { kind: CMD_SAB_RUN, startTick: tick, count };
-        await pool.exchange(() => ({ batch: { tick, commands: [cmd] } }));
+        try {
+          await pool.exchange(() => ({ batch: { tick, commands: [cmd] } }));
+        } catch (err) {
+          await recover(err); // rolls tick back to the last snapshot
+          continue;
+        }
         tick += BigInt(count);
         ticksRun += count;
         batches += 1;
-        remaining -= count;
+        if (recovery !== undefined && tick - lastSnapshotTick >= BigInt(recovery.snapshotEveryTicks)) {
+          lastSnapshot = capture();
+          lastSnapshotTick = tick;
+        }
       }
     },
     stateHash(): number {
@@ -158,20 +246,26 @@ export async function createSharedWaTorSim(opts: SharedWaTorOptions): Promise<Sh
       breedAge[idx] = spawn.breedAge;
       record?.record(tick, { tick, commands: [spawn] });
     },
-    captureSnapshot(): Snapshot {
-      return makeWaTorSnapshot(cfg, tick, { species, energy, breedAge });
+    captureSnapshot: capture,
+    restoreSnapshot: restore,
+    injectCrash(workerIndex: number, code = 1): void {
+      const handle = pool.handles[workerIndex];
+      if (handle === undefined) {
+        throw new Error(`no worker ${workerIndex}`);
+      }
+      const crash: PoolCrashCommand = { kind: POOL_CRASH, code };
+      handle.postBatch({ tick: null, commands: [crash] });
     },
-    restoreSnapshot(s: Snapshot): void {
-      const { tick: restoredTick, state } = prepareWaTorRestore(cfg, s);
-      species.set(state.species);
-      energy.set(state.energy);
-      breedAge.set(state.breedAge);
-      tick = restoredTick;
-    },
-    stats(): { ticks: number; batches: number; perWorker: { mainPosts: number; workerPosts: number }[] } {
+    stats(): {
+      ticks: number;
+      batches: number;
+      restarts: number;
+      perWorker: { mainPosts: number; workerPosts: number }[];
+    } {
       return {
         ticks: ticksRun,
         batches,
+        restarts,
         perWorker: pool.handles.map((h) => ({
           mainPosts: h.postCount,
           workerPosts: h.lastWorkerStats?.posts ?? 0,

@@ -1,9 +1,11 @@
 import { SimCommandBuffer } from "../messaging/command-buffer.js";
 import { assertDetached } from "../messaging/transfer.js";
 import {
+  POOL_CRASH,
   POOL_SHUTDOWN,
   POOL_SYNC,
   type MessageEnvelope,
+  type PoolCrashCommand,
   type SimCommand,
 } from "../messaging/types.js";
 import type { PortLike } from "./types.js";
@@ -57,6 +59,13 @@ export function serveWorker(port: PortLike, opts: ServeOptions): void {
         }
         if (cmd.kind === POOL_SYNC) {
           continue;
+        }
+        if (cmd.kind === POOL_CRASH) {
+          // Fault injection: die without replying, like a real crash. In a
+          // worker thread process.exit() stops only that thread. NEVER send
+          // this to an in-process TestWorkerAdapter — it would exit the
+          // host process; use TestWorkerHandle.simulateCrash() there.
+          process.exit((cmd as PoolCrashCommand).code ?? 1);
         }
         const handler = opts.handlers[cmd.kind];
         if (handler === undefined) {

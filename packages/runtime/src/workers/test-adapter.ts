@@ -47,4 +47,11 @@ export class TestWorkerHandle extends BaseWorkerHandle {
     }
     return this.waitExit();
   }
+
+  /** Test seam: emulate a worker crash — an error event followed by an
+   * abrupt nonzero exit (the in-process stand-in for pool.crash). */
+  simulateCrash(err = new Error("simulated crash")): Promise<number> {
+    this.fireError(err);
+    return this.terminate();
+  }
 }
