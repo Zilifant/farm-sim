@@ -52,6 +52,38 @@ export default tseslint.config(
     },
   },
   {
+    // The browser renderer: plain ES modules served statically, no build
+    // step. Flat config ships no browser globals, so the ones it uses are
+    // declared here.
+    files: ["apps/server/renderer/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        Element: "readonly",
+        localStorage: "readonly",
+        getComputedStyle: "readonly",
+        requestAnimationFrame: "readonly",
+        ResizeObserver: "readonly",
+        WebSocket: "readonly",
+        atob: "readonly",
+        fetch: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        globalThis: "readonly",
+        console: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
     // The server may use only the public package entry points, never
     // internals (deep imports are also blocked by the packages' exports
     // maps — this makes the intent visible at lint time).

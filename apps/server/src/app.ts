@@ -19,7 +19,9 @@ export function createApp(host: SimHost, opts: AppOptions = {}): express.Express
     res.status(code).json({ error: err instanceof Error ? err.message : String(err) });
   };
 
-  app.get("/", (_req, res) => {
+  // The endpoint listing lives under /api so the browser renderer's
+  // index.html can own the root path.
+  app.get("/api", (_req, res) => {
     res.json({
       name: "@sim/server",
       endpoints: [

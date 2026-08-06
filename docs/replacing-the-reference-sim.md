@@ -19,6 +19,8 @@ test patterns.
 |---|---|---|
 | `packages/refsim/` | The whole reference sim: rules, regions, workers, drivers, tests, bench metrics, demo CLI | Ultimately delete (step 6); mine for patterns first |
 | `apps/server/src/host.ts` (+ `main.ts`) | `SimHost` wraps the Wa-Tor sim behind HTTP | Repoint at your sim (step 4) |
+| `apps/server/src/ws.ts` | The renderer's WebSocket protocol: full frames (species grid), census events, commands | Reshape the frame payload for your sim's state (step 4b) |
+| `apps/server/renderer/` | The browser ASCII renderer (a demo/placeholder like the sim itself) | Reskin or replace (step 4b) |
 | `apps/server/package.json`, `apps/server/tsconfig.json` | Depend on / reference `@sim/refsim` | Swap to your package (steps 4, 6) |
 | `packages/refsim/src/bench/` | Benchmark CLI. `calibrate.ts`, `baseline.ts`, `main.ts` are generic; `metrics.ts` macro metrics are Wa-Tor | Move machinery into your package, rewrite macro metrics (step 5) |
 | `bench/baselines.json` | Recorded Wa-Tor benchmark numbers | Re-record for your sim (step 5) |
@@ -105,6 +107,28 @@ you go parallel, and save-at-T → restore → 2T equality.
 
 Verify: `pnpm build && pnpm exec vitest run apps/server` (adjust the
 server tests' expectations to your sim's semantics).
+
+### Step 4b — the renderer (if you use it)
+
+The browser renderer (`apps/server/renderer/`, see its README) knows
+Wa-Tor only through two seams:
+
+- **The wire shape** — `apps/server/src/ws.ts` builds frames carrying the
+  species grid and census events; reshape the payload for your sim's state
+  and keep the envelope (`snapshot.full` / `events.batch` /
+  `command.result`) so the transport, store scaffolding, and command flow
+  port unchanged.
+- **The appearance registry** — `renderer/app/rendering/CellAppearance.js`
+  is the only place glyphs and colors exist; the legend and the metrics
+  panel are generated from it. Reskinning a grid sim is mostly this one
+  file plus the panel labels (StatusPanel, MetricsPanel, EventLog,
+  InspectorPanel name fish and sharks).
+
+`Camera.js`, `GridProjection.js`, both transports, `collapsible.js`,
+`columnResize.js`, and the two stylesheets are sim-agnostic (they are
+verbatim ports from the biome renderer) and carry over as-is. A non-grid
+sim replaces the renderer wholesale — it is a placeholder, not a
+framework component.
 
 ## Step 5 — move the benchmark harness
 

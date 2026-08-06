@@ -1,0 +1,726 @@
+/* Renderer layout and panel styling. Information-dense, minimal decoration,
+   monospace everywhere, Dracula tokens only. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--dracula-background-darker);
+  color: var(--dracula-foreground);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+}
+
+#app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  gap: 4px;
+  padding: 4px;
+}
+
+/* ---- status bar ---- */
+#status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 4px 8px;
+  background: var(--dracula-background-dark);
+  border: 1px solid var(--dracula-selection);
+}
+
+.status-label {
+  color: var(--dracula-comment);
+}
+
+.mode-badge {
+  padding: 0 6px;
+  background: var(--dracula-green);
+  color: var(--dracula-background-darker);
+  font-weight: bold;
+}
+
+.mode-badge.mode-fixture {
+  background: var(--dracula-orange);
+}
+
+/* Whether the world is moving. A paused simulation and a quiet one look
+   identical on the grid, so this is the one state that has to be stated. */
+.run-badge {
+  padding: 0 6px;
+  background: var(--dracula-green);
+  color: var(--dracula-background-darker);
+  font-weight: bold;
+}
+
+.run-badge.paused {
+  background: var(--dracula-orange);
+}
+
+.ok {
+  color: var(--dracula-green);
+}
+.warn {
+  color: var(--dracula-orange);
+}
+.bad {
+  color: var(--dracula-red);
+}
+.dim {
+  color: var(--dracula-comment);
+}
+
+/* The result of the last command, at the right-hand end of the status bar —
+   beside the run state it usually explains. Cleared the moment another command
+   is sent (RendererApp), so it never captions a command that has been
+   superseded. `margin-left: auto` keeps it out of the way of the readings on
+   the left as they change width. */
+#command-status {
+  margin-left: auto;
+  text-align: right;
+  min-height: 1.4em;
+}
+
+/* ---- main area ----
+   Four columns: the event log on the left, the grid in the middle, then
+   population, then the controls/inspector/legend sidebar. Each aside's width is
+   a custom property so a drag handle can rewrite it (ui/columnResize.js); the
+   fallbacks here are also the minimum widths, ⚠ and are restated in
+   RESIZABLE_COLUMNS — they have to agree, or the first drag jumps. */
+#main {
+  display: grid;
+  grid-template-columns:
+    var(--events-width, 260px)
+    1fr
+    var(--population-width, 300px)
+    var(--sidebar-width, 300px);
+  gap: 4px;
+  min-height: 0;
+}
+
+/* ⚠ **Every child of `#main` is placed explicitly**, and that is not tidiness.
+   The drag handles overlay the columns rather than taking tracks of their own,
+   so they are placed by hand — and a grid with *some* items placed by hand
+   auto-places the rest into whatever cells are left, which put each aside one
+   track to the right of where it belongs and pushed the sidebar onto a second
+   row. The symptom is a page that still looks roughly right while half of it
+   cannot be clicked, so nothing here may rely on auto-placement. */
+#main > * {
+  grid-row: 1;
+}
+
+#events-column {
+  grid-column: 1;
+}
+
+#viewport-wrap {
+  grid-column: 2;
+}
+
+#population-column {
+  grid-column: 3;
+}
+
+#sidebar {
+  grid-column: 4;
+}
+
+/* ---- column drag handles ----
+   Each handle shares a grid track with the column it resizes and is pulled half
+   over the gap, so it overlays that column's inner edge without taking a track
+   of its own. Invisible until hovered: it is a target, not a decoration. */
+.col-resizer {
+  width: 7px;
+  z-index: 6;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.col-resizer:hover,
+.col-resizer:focus-visible,
+.col-resizer.dragging {
+  background: var(--dracula-current-line);
+  outline: none;
+}
+
+.col-resizer[data-resize="events-column"] {
+  grid-column: 1;
+  justify-self: end;
+  margin-right: -5px;
+}
+
+.col-resizer[data-resize="population-column"] {
+  grid-column: 3;
+  justify-self: start;
+  margin-left: -5px;
+}
+
+.col-resizer[data-resize="sidebar"] {
+  grid-column: 4;
+  justify-self: start;
+  margin-left: -5px;
+}
+
+/* ---- panel columns ----
+   The three asides are the same thing in different places, so they share one
+   rule rather than one per id: a panel behaves identically whichever column it
+   is in, which is what let the population panel move out of the sidebar without
+   touching its own styling. */
+.panel-column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+#viewport-wrap {
+  position: relative;
+  background: var(--dracula-background);
+  border: 1px solid var(--dracula-selection);
+  overflow: hidden;
+  min-height: 0;
+}
+
+#wator-canvas {
+  display: block;
+  /* A crosshair over the grid, since the pointer is aiming at a cell; the hovered
+     cell is also framed in yellow corner brackets drawn on the canvas
+     (RendererApp tracks the hover cell). */
+  cursor: crosshair;
+  /* The canvas handles its own pan gesture; without this a drag selects text
+     and the browser's own scroll takes over on touch. */
+  touch-action: none;
+}
+
+#wator-canvas.dragging {
+  cursor: move;
+}
+
+/* No focus ring on the grid. It is redundant with the on-canvas selection and
+   hover marks, and pressing Esc used to flip :focus-visible on and paint a
+   purple border around the whole map. */
+#wator-canvas:focus-visible {
+  outline: none;
+}
+
+/* ---- panels, in whichever column they sit ---- */
+.panel-column section {
+  background: var(--dracula-background-dark);
+  border: 1px solid var(--dracula-selection);
+  padding: 6px 8px;
+}
+
+.panel-column h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dracula-purple);
+}
+
+.panel-column h3 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  color: var(--dracula-comment);
+}
+
+/* ---- minimizable panels ----
+   Each top-level panel whose header is an <h2> (Controls, Population, Events)
+   toggles a `collapsed` class on its <section> when the header is clicked (see
+   ui/collapsible.js); the open-set is remembered in localStorage. The Legend is
+   already a <details>, so it collapses on its own. A text +/- marker keeps the
+   panels monospace-honest and matches the inspector's collapsible sections. */
+.panel-column section > h2 {
+  cursor: pointer;
+  user-select: none;
+}
+
+.panel-column section > h2::before {
+  content: "- ";
+}
+
+.panel-column section.collapsed > h2::before {
+  content: "+ ";
+}
+
+/* Collapsed: keep the header, hide everything else in the panel. */
+.panel-column section.collapsed > :not(h2) {
+  display: none;
+}
+
+.panel-column section.collapsed > h2 {
+  margin-bottom: 0;
+}
+
+.hint {
+  color: var(--dracula-comment);
+  margin: 0;
+}
+
+/* ---- controls ---- */
+.control-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+/* The one control whose label changes with the state it reports, so it gets a
+   fixed width — a button that resizes between Pause and Resume shifts the whole
+   row every time you use it. */
+.run-toggle {
+  min-width: 6.5em;
+  text-align: left;
+}
+
+.run-toggle.paused {
+  color: var(--dracula-green);
+}
+
+/* Text and number inputs are themed by *type*, not by id, so a new field is
+   themed the moment it is added — styling one control at a time is how the
+   world-composition inputs ended up as bare white browser widgets in a dark
+   panel. `select` and `button` are themed the same way below; keep new controls
+   reachable by a shared selector rather than a per-id rule. Widths are the only
+   thing set per-id, since only the field itself knows how wide it wants to be. */
+input[type="number"],
+input[type="text"] {
+  font: inherit;
+  color: var(--dracula-foreground);
+  background: var(--dracula-background-light);
+  border: 1px solid var(--dracula-selection);
+  padding: 2px 4px;
+}
+
+#ctl-step-n {
+  width: 5em;
+}
+
+#ctl-seed {
+  width: 8em;
+}
+
+/* Fixed width so the row does not shuffle as the speed changes. */
+.speed-value {
+  min-width: 3em;
+  text-align: center;
+  color: var(--dracula-bright-yellow);
+}
+
+/* One watchable per line, clickable across the whole row rather than only on
+   the box — these get toggled while watching the grid, not while aiming. A map
+   layer's switch is the same control doing the same job, so it shares the rule
+   rather than restating it: a toggle should look the same wherever it is. */
+.watch-row,
+.layer-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  cursor: pointer;
+  padding: 1px 0;
+}
+
+.watch-row:hover,
+.layer-row:hover {
+  background: var(--dracula-background-light);
+}
+
+.watch-row input,
+.layer-row input {
+  accent-color: var(--dracula-purple);
+}
+
+/* The key to a layer's colours: swatch, name, swatch, name, in a grid that
+   wraps — the same two-column shape the legend uses, at the width of a sidebar
+   panel rather than of a whole legend. */
+.layer-key {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 0 6px;
+  margin-top: 4px;
+}
+
+.layer-swatch {
+  text-align: right;
+}
+
+.layer-swatch-label {
+  color: var(--dracula-comment);
+}
+
+button,
+select {
+  font: inherit;
+  color: var(--dracula-foreground);
+  background: var(--dracula-background-light);
+  border: 1px solid var(--dracula-selection);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: var(--dracula-current-line);
+  background: var(--dracula-background-lighter);
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  color: var(--dracula-comment);
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--dracula-purple);
+  outline-offset: 1px;
+}
+
+/* ---- inspector ---- */
+.field {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--dracula-background-light);
+  padding: 1px 0;
+}
+
+.field > span:first-child {
+  color: var(--dracula-comment);
+}
+
+.occupants {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.occupants li.active {
+  background: var(--dracula-selection);
+  color: var(--dracula-bright-yellow);
+}
+
+.inspector-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* ---- inspector popover ----
+   Floats over the grid, anchored to the selected cell. Positioned by
+   InspectorPanel within #viewport-wrap, which is already `position: relative`. */
+.inspector-popover {
+  position: absolute;
+  z-index: 10;
+  width: 320px;
+  max-height: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  background: var(--dracula-background-dark);
+  border: 1px solid var(--dracula-purple);
+  /* The only shadow in the renderer: the popover is the one element that has to
+     read as floating *above* the grid rather than drawn into it. */
+  box-shadow: 0 4px 16px rgb(0 0 0 / 55%);
+}
+
+.inspector-popover[hidden] {
+  display: none;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  background: var(--dracula-background-light);
+  border-bottom: 1px solid var(--dracula-selection);
+  cursor: grab;
+  user-select: none;
+}
+
+.inspector-popover.dragging .popover-header {
+  cursor: grabbing;
+}
+
+.popover-grip {
+  color: var(--dracula-comment);
+  letter-spacing: -2px;
+}
+
+.popover-title {
+  flex: 1;
+  color: var(--dracula-purple);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.popover-button {
+  padding: 0 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--dracula-comment);
+}
+
+.popover-button:hover:not(:disabled) {
+  color: var(--dracula-foreground);
+  border-color: var(--dracula-selection);
+}
+
+.popover-button.active {
+  color: var(--dracula-bright-yellow);
+  border-color: var(--dracula-selection);
+}
+
+.popover-body {
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+
+.popover-body h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dracula-purple);
+}
+
+.popover-body h3 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  color: var(--dracula-comment);
+}
+
+/* Docked, the view sits in its own body element so the header survives the
+   view's structural rebuilds. */
+#inspector-panel .popover-header {
+  margin: -6px -8px 6px;
+  cursor: default;
+}
+
+/* ---- collapsible sections ----
+   An animal carries fourteen sections of biology; showing all of it at once is
+   the readability problem these exist to fix. Collapsed by default, and the
+   open-set is remembered in localStorage. */
+.inspector-section {
+  border-top: 1px solid var(--dracula-background-light);
+}
+
+.inspector-section > summary {
+  cursor: pointer;
+  padding: 3px 0;
+  color: var(--dracula-comment);
+  list-style: none;
+}
+
+.inspector-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A text marker rather than a glyph, so the panel stays monospace-honest. */
+.inspector-section > summary::before {
+  content: "+ ";
+  color: var(--dracula-purple);
+}
+
+.inspector-section[open] > summary::before {
+  content: "- ";
+}
+
+.inspector-section > summary:hover .section-title {
+  color: var(--dracula-foreground);
+}
+
+.section-title {
+  color: var(--dracula-purple);
+}
+
+.section-badge {
+  color: var(--dracula-comment);
+}
+
+.section-body {
+  padding: 0 0 4px 10px;
+}
+
+/* The species glyph beside a collapsed metrics section, drawn in the same
+   colour the grid draws it, so a row here and an animal on the map are
+   recognizably the same thing. Bold because a single lowercase letter at panel
+   size is otherwise easy to miss; the colour comes from the appearance registry
+   as an inline `var(--dracula-…)`, never from here. */
+.metrics-glyph {
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+/* The population sparkline, on its own line under the species name and inside
+   the <summary>, so it is still there when the section is collapsed — the
+   overview is the trend, not just the count.
+
+   ⚠ Its width is decided in JS (MetricsPanel measures the column and resamples
+   the history to fit); `overflow: hidden` is the backstop, so a mis-measurement
+   costs a clipped chart rather than a column of text pushed off the edge. */
+.metrics-trend {
+  display: block;
+  white-space: pre;
+  overflow: hidden;
+  line-height: 1.2;
+}
+
+/* ---- entity references ----
+   Every `#123` in the inspector and event log is a way into the grid. Styled as
+   text rather than a button so a dense panel does not turn into a field of
+   controls; it earns an underline on hover. */
+.entity-ref {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  /* ⚠ The colour comes from a custom property the markup sets per reference —
+     an animal's own species colour where the renderer still knows it (the event
+     log draws `g412` in gazelle yellow), cyan otherwise. It is `--ref-color`
+     rather than an inline `color` precisely so the hover rule below can still
+     win: an inline declaration outranks any stylesheet rule, and the cyan hover
+     would simply never appear. */
+  color: var(--ref-color, var(--dracula-cyan));
+  cursor: pointer;
+}
+
+.entity-ref:hover {
+  color: var(--dracula-bright-cyan);
+  text-decoration: underline;
+}
+
+/* ---- legend ----
+   Generated from the appearance registries in Legend.js, so it cannot drift
+   from what the grid actually draws. */
+.legend-root {
+  border-top: 0;
+}
+
+.legend-grid {
+  display: grid;
+  grid-template-columns: 2.5em 1fr;
+  gap: 0 6px;
+  align-items: baseline;
+}
+
+.legend-glyph {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.legend-label {
+  color: var(--dracula-foreground);
+}
+
+.entity-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- event log ----
+   It lives in its own left column and fills it, unless collapsed (then it
+   shrinks to just its header). */
+#event-log-panel {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+#event-log-panel.collapsed {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* One checkbox per event type is a long list, so the filters live in a
+   `<details>` that starts closed and scrolls inside itself — the log below it
+   keeps its room whether the filters are open or shut. */
+#event-log-filters {
+  flex: 0 0 auto;
+  border-top: 0;
+  margin-bottom: 4px;
+}
+
+#event-log-filters .section-body {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.filter-group {
+  margin: 6px 0 1px;
+  color: var(--dracula-purple);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.filter-group:first-child {
+  margin-top: 0;
+}
+
+#event-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+#event-log-list li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-died {
+  color: var(--dracula-red);
+}
+.event-created {
+  color: var(--dracula-green);
+}
+.event-removed {
+  color: var(--dracula-orange);
+}
+.event-moved {
+  color: var(--dracula-comment);
+}
+.event-fed {
+  color: var(--dracula-cyan);
+}
+.event-birth {
+  color: var(--dracula-pink);
+}
+.event-other {
+  color: var(--dracula-purple);
+}
+
+/* ---- help bar ---- */
+#help-bar {
+  padding: 2px 8px;
+  color: var(--dracula-comment);
+  background: var(--dracula-background-dark);
+  border: 1px solid var(--dracula-selection);
+
+  & a {
+    color: var(--dracula-cyan);
+  }
+}
