@@ -10,17 +10,22 @@ import {
   NodeWorkerAdapter,
   hashBuffers,
   type CommandBatch,
+  type Snapshot,
   type WorkerAdapter,
 } from "@sim/runtime";
 import { borderTransfers, type BorderPayload } from "./region.js";
+import { makeWaTorSnapshot, prepareWaTorRestore } from "./snapshot.js";
 import { FISH, SHARK, resolveConfig, type WaTorConfig } from "./wator.js";
 import {
   CMD_APPLY_BORDERS,
   CMD_BORDERS,
+  CMD_RESTORE,
   CMD_SNAPSHOT,
   CMD_TICK,
   type ApplyBordersCommand,
   type BordersReply,
+  type RestoreCommand,
+  type RowsPayload,
   type SnapshotReply,
   type TickCommand,
   type WaTorBoot,
@@ -47,6 +52,10 @@ export interface ParallelWaTorSim {
   stateHash(): Promise<number>;
   populations(): Promise<{ fish: number; sharks: number }>;
   snapshot(): Promise<{ species: Uint8Array; energy: Int16Array; breedAge: Int16Array }>;
+  /** Barrier-consistent capture (workers idle after the gather exchange). */
+  captureSnapshot(): Promise<Snapshot>;
+  /** Migrates if needed, validates config, scatters rows + ghosts back. */
+  restoreSnapshot(s: Snapshot): Promise<void>;
   /** Message counters per worker — the ≤1 postMessage/worker/tick evidence. */
   stats(): { ticks: number; snapshots: number; perWorker: WorkerMessagingStats[] };
   shutdown(): Promise<number[]>;
@@ -185,6 +194,41 @@ export async function createParallelWaTorSim(
       return { fish, sharks };
     },
     snapshot: gather,
+    async captureSnapshot(): Promise<Snapshot> {
+      return makeWaTorSnapshot(cfg, tick, await gather());
+    },
+    async restoreSnapshot(s: Snapshot): Promise<void> {
+      const { tick: restoredTick, state } = prepareWaTorRestore(cfg, s);
+      const w = cfg.width;
+      const h = cfg.height;
+      const rowSlice = (row: number): RowsPayload => ({
+        species: state.species.slice(row * w, (row + 1) * w),
+        energy: state.energy.slice(row * w, (row + 1) * w),
+        breedAge: state.breedAge.slice(row * w, (row + 1) * w),
+      });
+      await pool.exchange((i) => {
+        const strip = strips[i]!;
+        const owned: RowsPayload = {
+          species: state.species.slice(strip.start * w, (strip.start + strip.count) * w),
+          energy: state.energy.slice(strip.start * w, (strip.start + strip.count) * w),
+          breedAge: state.breedAge.slice(strip.start * w, (strip.start + strip.count) * w),
+        };
+        const cmd: RestoreCommand = {
+          kind: CMD_RESTORE,
+          owned,
+          ghostTop: rowSlice((strip.start - 1 + h) % h),
+          ghostBottom: rowSlice((strip.start + strip.count) % h),
+        };
+        const transfer: ArrayBuffer[] = [];
+        for (const p of [cmd.owned, cmd.ghostTop, cmd.ghostBottom]) {
+          transfer.push(p.species.buffer as ArrayBuffer, p.energy.buffer as ArrayBuffer, p.breedAge.buffer as ArrayBuffer);
+        }
+        return { batch: { tick: null, commands: [cmd] }, transfer };
+      });
+      // Stale border payloads describe pre-restore state.
+      pending = new Array<PendingBorders | null>(workers).fill(null);
+      tick = restoredTick;
+    },
     stats(): { ticks: number; snapshots: number; perWorker: WorkerMessagingStats[] } {
       return {
         ticks: ticksRun,

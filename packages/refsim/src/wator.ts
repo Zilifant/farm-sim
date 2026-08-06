@@ -106,6 +106,13 @@ export class WaTorSystem implements System {
     this.#region.runTick(ctx.tick);
     this.#region.applySelfBorders();
   }
+
+  /** Re-mirror edge rows into the ghost rows after out-of-band state writes
+   * (snapshot restore, spawn commands). Only valid at a tick boundary, where
+   * the migration logs are empty. */
+  syncGhosts(): void {
+    this.#region.applySelfBorders();
+  }
 }
 
 export interface CensusEvent {

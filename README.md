@@ -43,6 +43,20 @@ The color-phase update rule (see `packages/refsim/src/region.ts`) makes each
 tick's write set conflict-free by construction, so the SAB path needs no
 intent/resolve/apply pass for cross-region migration.
 
+## Snapshots & replay
+
+All modes capture barrier-consistent snapshots (`captureSnapshot`) and
+restore them (`restoreSnapshot`) — snapshots are portable across modes, and
+`encodeSnapshot`/`decodeSnapshot` give a binary format with the schema
+version in the header. Old saves migrate through `watorMigrator` (v1→v2
+pins `sharkMaxEnergy` to the Int16 ceiling, preserving the old
+unbounded-banking semantics). Because the RNG is counter-based, a snapshot
+is just (buffers, tick, config) — no generator state.
+
+External `spawn` commands recorded to a `ReplayLog` replay exactly:
+(seed, config, log) reproduces a run's state hash in the sequential and SAB
+modes.
+
 Throughput (`node packages/refsim/dist/bench.js 1020 100 4`, this container,
 Phase 3 acceptance — 1020 stands in for 1024, grid dims must be multiples
 of 5): sequential 56 ticks/sec, message-passing ×4 126 ticks/sec,

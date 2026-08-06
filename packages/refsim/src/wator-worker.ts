@@ -16,6 +16,7 @@ export const CMD_TICK = "wator.tick";
 export const CMD_APPLY_BORDERS = "wator.applyBorders";
 export const CMD_SNAPSHOT = "wator.snapshot";
 export const CMD_BORDERS = "wator.borders";
+export const CMD_RESTORE = "wator.restore";
 
 export interface WaTorBoot extends WorkerBootData {
   readonly cfg: WaTorConfig;
@@ -40,6 +41,21 @@ export interface BordersReply extends SimCommand {
   readonly kind: typeof CMD_BORDERS;
   readonly upOut: BorderPayload;
   readonly downOut: BorderPayload;
+}
+
+export interface RowsPayload {
+  readonly species: Uint8Array;
+  readonly energy: Int16Array;
+  readonly breedAge: Int16Array;
+}
+
+/** Overwrites the worker's strip: owned rows plus both ghost rows, computed
+ * by the driver from the full restored grid. */
+export interface RestoreCommand extends SimCommand {
+  readonly kind: typeof CMD_RESTORE;
+  readonly owned: RowsPayload;
+  readonly ghostTop: RowsPayload;
+  readonly ghostBottom: RowsPayload;
 }
 
 export interface SnapshotReply extends SimCommand {
@@ -79,6 +95,10 @@ export function setupWaTorWorker(port: PortLike, boot: WorkerBootData): void {
       [CMD_APPLY_BORDERS]: (cmd) => {
         const { upIn, downIn } = cmd as ApplyBordersCommand;
         applyIncoming(upIn, downIn);
+      },
+      [CMD_RESTORE]: (cmd) => {
+        const { owned, ghostTop, ghostBottom } = cmd as RestoreCommand;
+        region.restoreRows(owned, ghostTop, ghostBottom);
       },
       [CMD_SNAPSHOT]: (_cmd, ctx) => {
         const snap = region.snapshotOwned();

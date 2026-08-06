@@ -8,7 +8,11 @@ import {
   SystemScheduler,
   TickExecutor,
   hashBuffers,
+  type ReplayLog,
+  type Snapshot,
 } from "@sim/runtime";
+import { WATOR_SPAWN, makeSpawnCommand, type SpawnOptions, type WaTorSpawnCommand } from "./commands.js";
+import { makeWaTorSnapshot, prepareWaTorRestore } from "./snapshot.js";
 import {
   BREED_AGE,
   CensusSystem,
@@ -25,6 +29,9 @@ import {
 export * from "./wator.js";
 export * from "./region.js";
 export * from "./rules.js";
+export * from "./commands.js";
+export * from "./snapshot.js";
+export * from "./replay.js";
 export * from "./wator-worker.js";
 export * from "./parallel.js";
 export * from "./wator-shared.js";
@@ -39,6 +46,11 @@ export interface Populations {
   readonly sharks: number;
 }
 
+export interface WaTorSimOptions {
+  /** Externally injected commands (spawn) are recorded here for replay. */
+  readonly record?: ReplayLog;
+}
+
 export interface WaTorSim {
   readonly config: WaTorConfig;
   /** Completed ticks. */
@@ -48,13 +60,22 @@ export interface WaTorSim {
   step(): void;
   run(ticks: number): void;
   /** FNV-1a over the owned rows of species/energy/breedAge (ghost rows
-   * excluded) — directly comparable with ParallelWaTorSim.stateHash(). */
+   * excluded) — directly comparable with the parallel sims. */
   stateHash(): number;
   populations(): Populations;
+  /** Place (or clear) a creature at a cell before the next tick. Accepts
+   * SpawnOptions or an already-built command (replay). Recorded if a
+   * ReplayLog was supplied. */
+  spawn(cmd: SpawnOptions | WaTorSpawnCommand): void;
+  /** Barrier-consistent capture: sim is always at a tick boundary here. */
+  captureSnapshot(): Snapshot;
+  /** Migrates the snapshot if needed, validates config, overwrites state. */
+  restoreSnapshot(s: Snapshot): void;
 }
 
 export async function createWaTorSim(
   config: Partial<WaTorConfig> = {},
+  opts: WaTorSimOptions = {},
 ): Promise<WaTorSim> {
   const cfg = resolveConfig(config);
   // Ghost-inclusive storage: rows 0 and height+1 mirror the torus wrap.
@@ -67,7 +88,8 @@ export async function createWaTorSim(
 
   const census = new SimEventQueue<CensusEvent>();
   const scheduler = new SystemScheduler(buffers);
-  scheduler.register(new WaTorSystem(cfg), { workerGroup: "main" });
+  const watorSystem = new WaTorSystem(cfg);
+  scheduler.register(watorSystem, { workerGroup: "main" });
   scheduler.register(new CensusSystem(cfg, census), { workerGroup: "main" });
 
   const profiler = new RingProfiler();
@@ -81,13 +103,14 @@ export async function createWaTorSim(
   await executor.init();
 
   let tick = 0n;
-  const ownedStart = cfg.width;
-  const ownedEnd = (cfg.height + 1) * cfg.width;
-  const ownedViews = [
-    buffers.get(SPECIES).subarray(ownedStart, ownedEnd),
-    buffers.get(ENERGY).subarray(ownedStart, ownedEnd),
-    buffers.get(BREED_AGE).subarray(ownedStart, ownedEnd),
-  ];
+  const w = cfg.width;
+  const ownedStart = w;
+  const ownedEnd = (cfg.height + 1) * w;
+  const owned = {
+    species: buffers.get<Uint8Array>(SPECIES).subarray(ownedStart, ownedEnd),
+    energy: buffers.get<Int16Array>(ENERGY).subarray(ownedStart, ownedEnd),
+    breedAge: buffers.get<Int16Array>(BREED_AGE).subarray(ownedStart, ownedEnd),
+  };
 
   return {
     config: cfg,
@@ -110,14 +133,13 @@ export async function createWaTorSim(
       }
     },
     stateHash(): number {
-      return hashBuffers(ownedViews);
+      return hashBuffers([owned.species, owned.energy, owned.breedAge]);
     },
     populations(): Populations {
-      const species = buffers.get<Uint8Array>(SPECIES);
       let fish = 0;
       let sharks = 0;
-      for (let i = ownedStart; i < ownedEnd; i += 1) {
-        const s = species[i]!;
+      for (let i = 0; i < owned.species.length; i += 1) {
+        const s = owned.species[i]!;
         if (s === FISH) {
           fish += 1;
         } else if (s === SHARK) {
@@ -125,6 +147,26 @@ export async function createWaTorSim(
         }
       }
       return { fish, sharks };
+    },
+    spawn(cmd: SpawnOptions | WaTorSpawnCommand): void {
+      const spawn = "kind" in cmd && cmd.kind === WATOR_SPAWN ? cmd : makeSpawnCommand(cfg, cmd);
+      const idx = spawn.y * w + spawn.x;
+      owned.species[idx] = spawn.species;
+      owned.energy[idx] = spawn.energy;
+      owned.breedAge[idx] = spawn.breedAge;
+      watorSystem.syncGhosts();
+      opts.record?.record(tick, { tick, commands: [spawn] });
+    },
+    captureSnapshot(): Snapshot {
+      return makeWaTorSnapshot(cfg, tick, owned);
+    },
+    restoreSnapshot(s: Snapshot): void {
+      const { tick: restoredTick, state } = prepareWaTorRestore(cfg, s);
+      owned.species.set(state.species);
+      owned.energy.set(state.energy);
+      owned.breedAge.set(state.breedAge);
+      watorSystem.syncGhosts();
+      tick = restoredTick;
     },
   };
 }

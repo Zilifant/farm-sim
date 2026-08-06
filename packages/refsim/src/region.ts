@@ -230,7 +230,7 @@ export class WaTorRegion {
     }
   }
 
-  #setRow(row: number, p: BorderPayload): void {
+  #setRow(row: number, p: RegionStorage): void {
     const w = this.cfg.width;
     this.species.set(p.species, row * w);
     this.energy.set(p.energy, row * w);
@@ -247,6 +247,21 @@ export class WaTorRegion {
   #clearLogs(): void {
     this.#upLog = emptyLog();
     this.#downLog = emptyLog();
+  }
+
+  /** Overwrite owned rows and both ghost rows wholesale (snapshot restore).
+   * Pending migration logs are dropped — they describe pre-restore state. */
+  restoreRows(owned: RegionStorage, ghostTop: RegionStorage, ghostBottom: RegionStorage): void {
+    const w = this.cfg.width;
+    if (owned.species.length !== this.rowCount * w || ghostTop.species.length !== w || ghostBottom.species.length !== w) {
+      throw new Error("restoreRows: payload does not match region geometry");
+    }
+    this.species.set(owned.species, w);
+    this.energy.set(owned.energy, w);
+    this.breedAge.set(owned.breedAge, w);
+    this.#setRow(0, ghostTop);
+    this.#setRow(this.rowCount + 1, ghostBottom);
+    this.#clearLogs();
   }
 
   /** Fresh copies of the owned rows (no ghosts) — safe to transfer. */
