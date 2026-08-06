@@ -17,17 +17,53 @@ export default tseslint.config(
   },
   {
     // Phase 7 boundary: the runtime must not know the reference simulation
-    // exists. Domain code depends on @sim/runtime, never the reverse.
+    // exists (domain code depends on @sim/runtime, never the reverse) —
+    // and per the Phase 8 boundary it must have zero Express imports.
     files: ["packages/runtime/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "express",
+              message: "@sim/runtime must have zero Express imports (Phase 8 boundary).",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@sim/refsim", "@sim/refsim/*", "**/refsim/**", "**/wator*"],
+              message:
+                "@sim/runtime must have zero Wa-Tor/refsim imports (Phase 7 extraction boundary).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Sim packages never depend on the server layer.
+    files: ["packages/refsim/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { paths: [{ name: "express", message: "Sim packages must not depend on the server layer." }] },
+      ],
+    },
+  },
+  {
+    // The server may use only the public package entry points, never
+    // internals (deep imports are also blocked by the packages' exports
+    // maps — this makes the intent visible at lint time).
+    files: ["apps/server/**/*.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
         {
           patterns: [
             {
-              group: ["@sim/refsim", "@sim/refsim/*", "**/refsim/**", "**/wator*"],
-              message:
-                "@sim/runtime must have zero Wa-Tor/refsim imports (Phase 7 extraction boundary).",
+              group: ["@sim/runtime/*", "@sim/refsim/*"],
+              message: "Use only the public package entry points (@sim/runtime, @sim/refsim).",
             },
           ],
         },

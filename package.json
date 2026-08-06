@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "demo": "node packages/refsim/dist/main.js",
+    "serve": "node apps/server/dist/main.js",
     "bench": "node packages/refsim/dist/bench/main.js run",
     "bench:record": "node packages/refsim/dist/bench/main.js record",
     "bench:check": "node packages/refsim/dist/bench/main.js check",
