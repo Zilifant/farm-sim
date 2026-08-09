@@ -21,6 +21,8 @@ test patterns.
 | `apps/server/src/host.ts` (+ `main.ts`) | `SimHost` wraps the Wa-Tor sim behind HTTP | Repoint at your sim (step 4) |
 | `apps/server/src/ws.ts` | The renderer's WebSocket protocol: full frames (species grid), census events, commands | Reshape the frame payload for your sim's state (step 4b) |
 | `apps/server/renderer/` | The browser ASCII renderer (a demo/placeholder like the sim itself) | Reskin or replace (step 4b) |
+| `apps/server/public/index.html` | The renderer's HTML shell: title, canvas id (`wator-canvas`), aria labels | Rename with the renderer (step 4b) |
+| `apps/server/test/` | Server, WS-protocol, and renderer-unit tests, written against Wa-Tor semantics | Adjust expectations to your sim (step 4) |
 | `apps/server/package.json`, `apps/server/tsconfig.json` | Depend on / reference `@sim/refsim` | Swap to your package (steps 4, 6) |
 | `packages/refsim/src/bench/` | Benchmark CLI. `calibrate.ts`, `baseline.ts`, `main.ts` are generic; `metrics.ts` macro metrics are Wa-Tor | Move machinery into your package, rewrite macro metrics (step 5) |
 | `bench/baselines.json` | Recorded Wa-Tor benchmark numbers | Re-record for your sim (step 5) |
@@ -164,6 +166,10 @@ Then remove every remaining reference:
 - `eslint.config.js`: in the runtime boundary block, the
   `@sim/refsim`/`wator` pattern entries can go (yours from step 2 stays);
   delete the `packages/refsim/**` express-restriction block.
+- `apps/server`: any Wa-Tor names steps 4/4b left behind — the
+  `wator.spawn` command and `wator-` simulationId prefix in `src/ws.ts`,
+  the `wator-canvas` id in `public/index.html` and `renderer.css`, and the
+  renderer's `README-RENDERER.md` prose.
 - `docs/building-a-sim.md`: remove or reword the final paragraph pointing
   at refsim.
 - `pnpm install` to refresh the lockfile.

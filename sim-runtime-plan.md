@@ -1,5 +1,16 @@
 # TypeScript Simulation Runtime — Implementation Plan
 
+> **Status: complete (2026-08).** All phases (0–8) are implemented and merged;
+> this document is retired as a historical record — read it for provenance
+> (why and when a decision was made), not for current state. The README and
+> `docs/` describe what was actually built, including where the
+> implementation deliberately deviates (notably: the Wa-Tor rules were
+> redesigned in Phase 2 into a conflict-free "color-phase" update so results
+> are identical across worker counts, which made §Phase 3's two-phase
+> intent/resolve/apply pass unnecessary; grid dimensions must be multiples
+> of 5 as a consequence). A browser ASCII renderer (not in this plan) was
+> added afterward under `apps/server/renderer/`.
+
 Stack: Node 24 LTS, TS + ESM, `node:worker_threads`, `MessagePort`, transferred `ArrayBuffer`, `SharedArrayBuffer` + `Atomics`, Express 5 (optional, isolated), Vitest, pnpm workspaces.
 
 Guiding rule: build the runtime *inside* one reference simulation, extract afterward. Two packages until extraction is earned.
