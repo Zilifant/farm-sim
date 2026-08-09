@@ -1,0 +1,30 @@
+/* Dracula Classic — the renderer's single source of color truth.
+   Derived shades may only mix these values or apply opacity to them. */
+:root {
+  --dracula-background: #282A36;
+  --dracula-current-line: #6272A4;
+  --dracula-selection: #44475A;
+  --dracula-foreground: #F8F8F2;
+  --dracula-comment: #6272A4;
+
+  --dracula-red: #FF5555;
+  --dracula-orange: #FFB86C;
+  --dracula-yellow: #F1FA8C;
+  --dracula-green: #50FA7B;
+  --dracula-cyan: #8BE9FD;
+  --dracula-purple: #BD93F9;
+  --dracula-pink: #FF79C6;
+
+  --dracula-background-lighter: #424450;
+  --dracula-background-light: #343746;
+  --dracula-background-dark: #21222C;
+  --dracula-background-darker: #191A21;
+
+  --dracula-bright-red: #FF6E6E;
+  --dracula-bright-green: #69FF94;
+  --dracula-bright-yellow: #FFFFA5;
+  --dracula-bright-purple: #D6ACFF;
+  --dracula-bright-pink: #FF92DF;
+  --dracula-bright-cyan: #A4FFFF;
+  --dracula-bright-white: #FFFFFF;
+}

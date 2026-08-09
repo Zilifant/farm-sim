@@ -10,10 +10,16 @@ simulation. See [sim-runtime-plan.md](./sim-runtime-plan.md) for the full plan.
 - `packages/refsim` — `@sim/refsim`: Wa-Tor predator-prey reference simulation.
 - `apps/server` — `@sim/server`: Express 5 control API over a hosted sim
   (start/pause/speed/step, spawn, binary snapshot download/restore, SSE
-  state stream). Run with `pnpm serve` (after build), then `GET /` for the
-  endpoint list. The HTTP layer only holds a reference to the sim host —
-  closing the server leaves the simulation ticking, and lint rules keep
-  Express out of the sim packages and internals out of the server.
+  state stream), plus a **browser ASCII renderer** served at `/` with a
+  WebSocket frame/command stream at `/ws`. Run with `pnpm serve` (after
+  build), then open http://localhost:3000 — the REST endpoint list is at
+  `GET /api`. The renderer (`apps/server/renderer/`, see its
+  [README](./apps/server/renderer/README-RENDERER.md)) is a Dracula-themed
+  roguelike-style grid adapted from the biome renderer, and like the Wa-Tor
+  sim it is a demo/placeholder to swap or build on. The HTTP layer only
+  holds a reference to the sim host — closing the server leaves the
+  simulation ticking, and lint rules keep Express out of the sim packages
+  and internals out of the server.
 
 Wa-Tor is a demo/placeholder: it proves the runtime works and serves as the
 worked example of every pattern, and it is meant to be replaced by your
