@@ -1,7 +1,13 @@
 # simulation-engine
 
 TypeScript simulation runtime built inside a Wa-Tor predator-prey reference
-simulation. See [sim-runtime-plan.md](./sim-runtime-plan.md) for the full plan.
+simulation, with a browser ASCII renderer on top. This is a **framework
+repo**: duplicate it, then replace the Wa-Tor sim and renderer (both are
+demo/placeholders) with your own simulation.
+
+[sim-runtime-plan.md](./sim-runtime-plan.md) is the original build plan —
+all phases (0–8) are implemented, so it is a historical record of why
+decisions were made, not a statement of current work.
 
 ## Packages
 
@@ -46,6 +52,7 @@ pnpm test    # vitest
 pnpm lint    # eslint
 pnpm check   # build + lint + test (what CI runs)
 pnpm demo    # run Wa-Tor for 1000 ticks and print census + timings (after build)
+pnpm serve   # host the sim + browser renderer at http://localhost:3000 (after build)
 ```
 
 `pnpm demo [seed] [ticks] [workers]` — with `workers >= 1` the grid is
@@ -68,6 +75,12 @@ Wa-Tor runs identically (same seed ⇒ same state hash) in three modes:
 The color-phase update rule (see `packages/refsim/src/region.ts`) makes each
 tick's write set conflict-free by construction, so the SAB path needs no
 intent/resolve/apply pass for cross-region migration.
+
+Throughput (`node packages/refsim/dist/bench.js 1020 100 4`, a 4-cpu
+container, Phase 3 acceptance — 1020 stands in for 1024, grid dims must be
+multiples of 5): sequential 56 ticks/sec, message-passing ×4 126 ticks/sec,
+SAB+Atomics ×4 191 ticks/sec. Historical readings from one machine —
+re-measure with `pnpm bench` rather than inheriting them.
 
 ## Snapshots & replay
 
@@ -95,11 +108,6 @@ pool and barrier, restores the last snapshot, and deterministically
 re-simulates the lost ticks (`stats().restarts` counts these). Crash
 injection for tests: `sim.injectCrash(worker, exitCode)` /
 `TestWorkerHandle.simulateCrash()`.
-
-Throughput (`node packages/refsim/dist/bench.js 1020 100 4`, this container,
-Phase 3 acceptance — 1020 stands in for 1024, grid dims must be multiples
-of 5): sequential 56 ticks/sec, message-passing ×4 126 ticks/sec,
-SAB+Atomics ×4 191 ticks/sec.
 
 ## Benchmarks
 
