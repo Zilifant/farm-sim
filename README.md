@@ -1,4 +1,4 @@
-# simulation-engine
+# farm-sim
 
 TypeScript simulation runtime built inside a Wa-Tor predator-prey reference
 simulation, with a browser ASCII renderer on top. This is a **framework
