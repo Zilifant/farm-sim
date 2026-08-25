@@ -1,4 +1,4 @@
-// Entry point: host a Wa-Tor sim, serve the control API, the browser
+// Entry point: host the farm sim, serve the control API, the browser
 // renderer, and the renderer's WebSocket stream.
 //   PORT=3000 node apps/server/dist/main.js [seed]
 
@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { createApp } from "./app.js";
 import { SimHost } from "./host.js";
-import { attachWaTorSockets } from "./ws.js";
+import { attachFarmSockets } from "./ws.js";
 
 const host = await SimHost.create({ seed: process.argv[2] ?? "server" });
 host.start();
@@ -21,7 +21,7 @@ const port = Number(process.env["PORT"] ?? 3000);
 const server = app.listen(port, () => {
   console.log(`@sim/server listening on http://localhost:${port} — renderer at /, endpoints at GET /api`);
 });
-const sockets = attachWaTorSockets(server, host);
+const sockets = attachFarmSockets(server, host);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

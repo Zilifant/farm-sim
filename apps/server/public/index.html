@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>wa-tor — ASCII renderer</title>
+    <title>farm-sim — ASCII renderer</title>
     <link rel="stylesheet" href="/renderer/app/styles/dracula.css" />
     <link rel="stylesheet" href="/renderer/app/styles/renderer.css" />
   </head>
   <body>
     <div id="app">
       <header id="status-bar"></header>
-      <!-- Four columns: events, the grid, population, and the sidebar. Each aside
-         carries a drag handle on its *inner* edge (the one facing the grid),
+      <!-- Four columns: events, the map, markets, and the sidebar. Each aside
+         carries a drag handle on its *inner* edge (the one facing the map),
          placed in the same grid track as the column it resizes so it overlays
          the column edge rather than taking a track of its own. -->
       <div id="main">
         <aside id="events-column" class="panel-column">
-          <section id="event-log-panel" aria-label="Census event log"></section>
+          <section id="event-log-panel" aria-label="Farm event log"></section>
         </aside>
         <div
           class="col-resizer"
@@ -28,14 +28,14 @@
         ></div>
         <div id="viewport-wrap">
           <canvas
-            id="wator-canvas"
+            id="farm-canvas"
             tabindex="0"
             role="img"
-            aria-label="ASCII grid view of the Wa-Tor simulation. Fish and sharks are drawn as colored monospace characters; use the inspector panel for a text description of the selected cell."
+            aria-label="ASCII map view of the farm. Fields, crops, and growth stages are drawn as colored monospace characters; use the inspector panel for a text description of the selected cell."
           ></canvas>
         </div>
         <aside id="population-column" class="panel-column">
-          <section id="metrics-panel" aria-label="Population metrics"></section>
+          <section id="metrics-panel" aria-label="Commodity markets"></section>
         </aside>
         <div
           class="col-resizer"
@@ -50,6 +50,7 @@
             id="controls-panel"
             aria-label="Simulation and camera controls"
           ></section>
+          <section id="farm-panel" aria-label="Farm management"></section>
           <section id="inspector-panel" aria-label="Cell inspector"></section>
           <section id="legend-panel" aria-label="Glyph legend"></section>
         </aside>
@@ -64,9 +65,9 @@
       </div>
       <footer id="help-bar">
         drag or arrows/WASD to pan (shift = fast) &middot; +/- or wheel zoom
-        &middot; click any cell to inspect it &middot; C recenter &middot; Esc
-        clear &middot; Space pause/resume &middot; [ ] speed &middot; drag a
-        column edge to resize it
+        &middot; click any cell to inspect its field &middot; C recenter
+        &middot; Esc clear &middot; Space pause/resume &middot; [ ] speed
+        &middot; drag a column edge to resize it
       </footer>
     </div>
     <script type="module" src="/renderer/app/main.js"></script>

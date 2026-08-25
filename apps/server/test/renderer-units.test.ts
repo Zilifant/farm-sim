@@ -1,7 +1,7 @@
 // Unit tests for the renderer's pure browser modules — imported directly
 // from the static app (plain ES modules, so Node loads them fine). The
-// camera/projection files are ports of the biome renderer's; the store and
-// sparkline logic are Wa-Tor's own.
+// camera/projection files are ports of the biome renderer's; the store,
+// sparkline, and appearance logic are the farm renderer's own.
 
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain JS browser module without type declarations
@@ -14,20 +14,34 @@ import { RendererStore, RendererProtocolError } from "../renderer/app/state/Rend
 import { resample, sparkline, TREND_LEVELS } from "../renderer/app/ui/MetricsPanel.js";
 // @ts-expect-error — plain JS browser module without type declarations
 import { describeLegend } from "../renderer/app/ui/Legend.js";
+// @ts-expect-error — plain JS browser module without type declarations
+import { resolveAppearance, CROP_CODE_BASE, BUCKETS_PER_CROP, BUCKET_MATURE, CELL_FOR_SALE } from "../renderer/app/rendering/CellAppearance.js";
+// @ts-expect-error — plain JS browser module without type declarations
+import { formatMoney } from "../renderer/app/ui/StatusPanel.js";
 
 function frame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const species = new Uint8Array(9);
-  species[4] = 1; // one fish, center cell
+  const cells = new Uint8Array(9);
+  cells[4] = CROP_CODE_BASE; // one planted-corn cell, center
+  const fieldIds = new Uint8Array(9).fill(255);
+  fieldIds[4] = 0;
   return {
-    protocolVersion: 1,
-    simulationId: "wator-1-0",
+    protocolVersion: 2,
+    simulationId: "farm-1-0",
     seed: 1,
     tick: 5,
     running: true,
     speed: 2,
     world: { width: 3, height: 3 },
-    species: Buffer.from(species).toString("base64"),
-    populations: { fish: 1, sharks: 0 },
+    cells: Buffer.from(cells).toString("base64"),
+    fieldIds: Buffer.from(fieldIds).toString("base64"),
+    date: { year: 1, doy: 5, month: "Jan", dayOfMonth: 6, season: "winter", label: "Y1 Jan 6" },
+    weather: { high: 30, low: 18, rain: 0 },
+    forecast: [],
+    fields: [{ id: 0, name: "North A", owned: true, acres: 90 }],
+    ops: [],
+    equipment: [],
+    markets: [{ key: "corn", name: "Corn", unit: "bu", price: 4.9, basePrice: 4.8, stored: 0 }],
+    finance: { cash: 150000, debt: 200000, netWorth: 3_000_000, workers: 2, storageUsed: 0, storageCapacity: 25000 },
     ...overrides,
   };
 }
@@ -68,8 +82,10 @@ describe("RendererStore", () => {
     store.applyFullSnapshot(frame());
     expect(store.tick).toBe(5);
     expect(store.runState).toEqual({ paused: false, speed: 2 });
-    expect(store.speciesAtCell(1, 1)).toBe(1);
-    expect(store.history).toEqual([{ tick: 5, fish: 1, sharks: 0 }]);
+    expect(store.cellAtXY(1, 1)).toBe(CROP_CODE_BASE);
+    expect(store.fieldIdAtXY(1, 1)).toBe(0);
+    expect(store.fieldIdAtXY(0, 0)).toBeNull();
+    expect(store.history).toEqual([{ tick: 5, cash: 150000, prices: { corn: 4.9 } }]);
     // Same tick again (a forced frame): no duplicate history sample.
     store.applyFullSnapshot(frame());
     expect(store.history).toHaveLength(1);
@@ -77,8 +93,8 @@ describe("RendererStore", () => {
 
   it("rejects wrong protocol versions and truncated grids", () => {
     const store = new RendererStore();
-    expect(() => store.applyFullSnapshot(frame({ protocolVersion: 2 }))).toThrow(RendererProtocolError);
-    expect(() => store.applyFullSnapshot(frame({ species: "AAAA" }))).toThrow(/cells for a 3x3 world/);
+    expect(() => store.applyFullSnapshot(frame({ protocolVersion: 1 }))).toThrow(RendererProtocolError);
+    expect(() => store.applyFullSnapshot(frame({ cells: "AAAA" }))).toThrow(/cells for a 3x3 world/);
   });
 
   it("a restart (new simulationId) clears selection, events, and history", () => {
@@ -86,24 +102,24 @@ describe("RendererStore", () => {
     store.applyFullSnapshot(frame());
     store.setSelection({ cellX: 1, cellY: 1 });
     store.applyEventBatch({
-      simulationId: "wator-1-0",
-      events: [{ seq: 1, type: "census", tick: 5, fish: 1, sharks: 0 }],
+      simulationId: "farm-1-0",
+      events: [{ seq: 1, kind: "op", tick: 5, message: "planted Corn on North A" }],
     });
     expect(store.events).toHaveLength(1);
-    store.applyFullSnapshot(frame({ simulationId: "wator-7-1", tick: 0 }));
+    store.applyFullSnapshot(frame({ simulationId: "farm-7-1", tick: 0 }));
     expect(store.selection).toBeNull();
     expect(store.events).toHaveLength(0);
-    expect(store.history).toEqual([{ tick: 0, fish: 1, sharks: 0 }]);
+    expect(store.history).toEqual([{ tick: 0, cash: 150000, prices: { corn: 4.9 } }]);
   });
 
-  it("deduplicates census events by seq", () => {
+  it("deduplicates farm events by seq", () => {
     const store = new RendererStore();
     store.applyFullSnapshot(frame());
     const batch = {
-      simulationId: "wator-1-0",
+      simulationId: "farm-1-0",
       events: [
-        { seq: 1, type: "census", tick: 5, fish: 1, sharks: 0 },
-        { seq: 2, type: "census", tick: 10, fish: 2, sharks: 0 },
+        { seq: 1, kind: "op", tick: 5, message: "fertilized North A" },
+        { seq: 2, kind: "harvest", tick: 10, message: "harvested North A" },
       ],
     };
     store.applyEventBatch(batch);
@@ -125,12 +141,36 @@ describe("sparklines", () => {
   });
 });
 
+describe("cell appearance", () => {
+  it("gives every crop distinct growing and mature looks", () => {
+    const seen = new Set<string>();
+    for (let crop = 1; crop <= 6; crop += 1) {
+      const mature = resolveAppearance(CROP_CODE_BASE + (crop - 1) * BUCKETS_PER_CROP + BUCKET_MATURE);
+      expect(mature.glyph).toBe(mature.glyph.toUpperCase());
+      seen.add(`${mature.glyph}:${mature.colorToken}`);
+    }
+    expect(seen.size).toBe(6); // no two crops share glyph+color at maturity
+    expect(resolveAppearance(CELL_FOR_SALE).label).toContain("for sale");
+    expect(resolveAppearance(200).label).toBe("unknown");
+  });
+});
+
 describe("legend", () => {
   it("is generated from the appearance registry", () => {
     const groups = describeLegend() as Array<{ title: string; entries: Array<{ label: string; glyph: string }> }>;
-    const creatures = groups.find((g) => g.title === "Creatures");
-    expect(creatures?.entries.map((e) => e.label)).toContain("fish");
-    expect(creatures?.entries.map((e) => e.label)).toContain("shark");
-    expect(groups.find((g) => g.title === "Ocean")?.entries[0]?.glyph).toBe("~");
+    const crops = groups.find((g) => g.title === "Crops");
+    expect(crops?.entries.map((e) => e.label)).toContain("corn (mature)");
+    expect(crops?.entries.map((e) => e.label)).toContain("tomatoes (growing)");
+    const land = groups.find((g) => g.title === "Land");
+    expect(land?.entries.map((e) => e.label)).toContain("farmstead");
+  });
+});
+
+describe("money formatting", () => {
+  it("compacts to a status-bar width", () => {
+    expect(formatMoney(1_234_567)).toBe("$1.23M");
+    expect(formatMoney(45_600)).toBe("$46k");
+    expect(formatMoney(4_560)).toBe("$4.6k");
+    expect(formatMoney(-320)).toBe("-$320");
   });
 });

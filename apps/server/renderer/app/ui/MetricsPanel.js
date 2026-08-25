@@ -1,16 +1,18 @@
 /**
- * Population metrics panel: one line per species — its grid glyph, its name,
- * how many are alive — with the population trend beneath it as a sparkline.
+ * Markets panel: one row per crop — its grid glyph, its name, the current
+ * price and what is sitting in storage — with the price trend beneath it as
+ * a sparkline, and a cash row at the foot in the same idiom.
  *
- * Presentation only: counts arrive on every frame from the host, and the
+ * Presentation only: prices arrive on every frame from the host, and the
  * history is the renderer's own bounded record of them. The sparkline
  * conventions are the biome renderer's: drawn from `TREND_LEVELS` (a ramp
  * with no blank rung — every column of a trend has a sample, so a flat series
- * reads as `▁▁▁▁` rather than as no population), and **downsampled by bucket
+ * reads as `▁▁▁▁` rather than as no market), and **downsampled by bucket
  * mean, not truncated to the last N** — the point of the row is the shape of
  * the whole history.
  */
-import { SPECIES_APPEARANCE, FISH, SHARK } from '../rendering/CellAppearance.js';
+import { cropAppearanceByKey } from '../rendering/CellAppearance.js';
+import { formatMoney } from './StatusPanel.js';
 
 /** The rungs a sparkline may use, lightest to fullest — no blank (see above). */
 export const TREND_LEVELS = Object.freeze(['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']);
@@ -63,7 +65,7 @@ export class MetricsPanel {
   /** @param {HTMLElement} container */
   constructor(container) {
     this.#container = container;
-    container.innerHTML = '<h2>Population</h2><p class="hint">waiting for the host…</p>';
+    container.innerHTML = '<h2>Markets</h2><p class="hint">waiting for the host…</p>';
   }
 
   /** How many sparkline characters fit across this panel right now. */
@@ -85,23 +87,32 @@ export class MetricsPanel {
 
   /** @param {import('../state/RendererStore.js').RendererStore} store */
   render(store) {
-    if (store.history.length === 0) return;
+    if (store.history.length === 0 || store.markets.length === 0) return;
     const columns = this.#columns();
-    const rows = [
-      { code: FISH, series: store.history.map((sample) => sample.fish), count: store.populations.fish },
-      { code: SHARK, series: store.history.map((sample) => sample.sharks), count: store.populations.sharks },
-    ]
-      .map(({ code, series, count }) => {
-        const appearance = SPECIES_APPEARANCE[code];
+    const rows = store.markets
+      .map((market) => {
+        const appearance = cropAppearanceByKey(market.key);
+        const series = store.history.map((sample) => sample.prices[market.key] ?? market.price);
+        const vsBase = market.price / market.basePrice - 1;
+        const tone = vsBase > 0.03 ? 'ok' : vsBase < -0.03 ? 'warn' : 'dim';
+        const stored = market.stored > 0.5 ? ` · ${Math.round(market.stored).toLocaleString('en-US')} ${market.unit} stored` : '';
         return `
         <div class="field">
-          <span><span class="metrics-glyph" style="color: var(--dracula-${appearance.colorToken})">${appearance.glyph}</span> ${appearance.label}</span>
-          <span>${count} alive</span>
+          <span><span class="metrics-glyph" style="color: var(--dracula-${appearance.colorToken})">${appearance.glyph}</span> ${market.name}</span>
+          <span>$${market.price.toFixed(2)}/${market.unit} <span class="${tone}">${vsBase >= 0 ? '▲' : '▼'}${Math.abs(vsBase * 100).toFixed(0)}%</span></span>
         </div>
+        ${stored ? `<div class="field"><span class="dim">${stored.slice(3)}</span><span></span></div>` : ''}
         <span class="metrics-trend" style="color: var(--dracula-${appearance.colorToken})">${sparkline(series, columns)}</span>`;
       })
       .join('');
-    this.#container.innerHTML = `<h2>Population</h2>${rows}
-      <p class="hint">trend spans the last ${store.history.length} frames</p>`;
+    const cashSeries = store.history.map((sample) => sample.cash);
+    const cashRow = `
+      <div class="field">
+        <span><span class="metrics-glyph" style="color: var(--dracula-green)">$</span> cash</span>
+        <span>${store.finance ? formatMoney(store.finance.cash) : '–'}</span>
+      </div>
+      <span class="metrics-trend" style="color: var(--dracula-green)">${sparkline(cashSeries, columns)}</span>`;
+    this.#container.innerHTML = `<h2>Markets</h2>${rows}${cashRow}
+      <p class="hint">price change is vs. the long-term average · trend spans the last ${store.history.length} days</p>`;
   }
 }

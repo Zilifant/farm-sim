@@ -1,7 +1,8 @@
 /**
  * Canvas 2D ASCII grid renderer, in the biome renderer's visual tradition.
  *
- * Draw order per frame: background → water glyphs → creature glyphs →
+ * Draw order per frame: background → field tint (the hovered/selected cell's
+ * whole field, so a *field* reads as the unit it is) → cell glyphs →
  * selection overlay → hover brackets. One monospace glyph per cell,
  * integer-aligned, device-pixel-ratio aware. No sprites, gradients, shadows,
  * or decorative animation — discrete cell changes only.
@@ -10,7 +11,7 @@
  * with the exact hex fallbacks from CellAppearance for safety.
  */
 import { createProjection } from './GridProjection.js';
-import { DRACULA_COLORS, EMPTY, resolveAppearance, WATER_APPEARANCE } from './CellAppearance.js';
+import { DRACULA_COLORS, resolveAppearance } from './CellAppearance.js';
 
 const MONO_STACK =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -91,27 +92,36 @@ export class AsciiGridRenderer {
     ctx.textBaseline = 'middle';
     const half = cellSize / 2;
 
-    // --- Water + creature pass, one glyph per visible in-world cell. Water is
-    // not drawn under an occupant: the creature's glyph is the one worth
-    // reading, exactly as biome fades ground under a standing animal.
     if (world) {
       const cells = projection.visibleCellBounds();
       const minCellX = Math.max(cells.minCellX, 0);
       const maxCellX = Math.min(cells.maxCellX, world.width - 1);
       const minCellY = Math.max(cells.minCellY, 0);
       const maxCellY = Math.min(cells.maxCellY, world.height - 1);
-      const waterFill = this.#color(WATER_APPEARANCE.colorToken);
+
+      // --- Field tint: the field under the pointer (or the selection) is
+      // washed with a faint fill so the whole management unit reads at once.
+      const activeCell = hoverCell ?? store.selection;
+      const activeField = activeCell ? store.fieldIdAtXY(activeCell.cellX, activeCell.cellY) : null;
+      if (activeField !== null) {
+        ctx.fillStyle = this.#color('background-light');
+        for (let cellY = minCellY; cellY <= maxCellY; cellY += 1) {
+          const rowOffset = cellY * world.width;
+          for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+            if (store.fieldIds?.[rowOffset + cellX] === activeField) {
+              const { px, py } = projection.cellToScreen(cellX, cellY);
+              ctx.fillRect(px, py, cellSize, cellSize);
+            }
+          }
+        }
+      }
+
+      // --- Glyph pass, one per visible in-world cell.
       for (let cellY = minCellY; cellY <= maxCellY; cellY += 1) {
         const rowOffset = cellY * world.width;
         for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
-          const species = store.speciesAt(rowOffset + cellX);
+          const appearance = resolveAppearance(store.cellAt(rowOffset + cellX));
           const { px, py } = projection.cellToScreen(cellX, cellY);
-          if (species === EMPTY) {
-            ctx.fillStyle = waterFill;
-            ctx.fillText(WATER_APPEARANCE.glyph, px + half, py + half);
-            continue;
-          }
-          const appearance = resolveAppearance(species);
           ctx.fillStyle = this.#color(appearance.colorToken);
           ctx.fillText(appearance.glyph, px + half, py + half);
         }
@@ -119,16 +129,15 @@ export class AsciiGridRenderer {
     }
 
     // --- Selection overlay. Selection is a *cell*: the mark is drawn whether
-    // or not anything swims in it, and the occupant's glyph (or the water) is
-    // redrawn in the selection colour on top — an empty selected cell must not
-    // read as a hole in the map.
+    // or not anything grows in it, and the occupant's glyph is redrawn in the
+    // selection colour on top — a selected lane must not read as a hole.
     const selection = store.selection;
     if (selection) {
       const { px, py } = projection.cellToScreen(selection.cellX, selection.cellY);
       ctx.fillStyle = this.#color('selection');
       ctx.fillRect(px, py, cellSize, cellSize);
       this.#drawBrackets(px, py, cellSize, this.#color('bright-yellow'));
-      const appearance = resolveAppearance(store.speciesAtCell(selection.cellX, selection.cellY));
+      const appearance = resolveAppearance(store.cellAtXY(selection.cellX, selection.cellY));
       ctx.fillStyle = this.#color('bright-yellow');
       ctx.fillText(appearance.glyph, px + half, py + half);
     }

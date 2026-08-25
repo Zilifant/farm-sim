@@ -23,7 +23,7 @@ import { TransportEvents } from './transports/RendererTransport.js';
 const DRAG_THRESHOLD_PX = 4;
 
 /** How often the selected cell's inspection detail is refreshed (live query). */
-const INSPECTION_INTERVAL_MS = 500;
+const INSPECTION_INTERVAL_MS = 2000;
 
 export class RendererApp {
   #store;
@@ -51,7 +51,7 @@ export class RendererApp {
    * @param {import('./transports/RendererTransport.js').RendererTransport} options.transport
    * @param {HTMLCanvasElement} options.canvas
    * @param {{statusPanel: object, inspector: object, metricsPanel: object,
-   *          eventLog: object, controls: object}} options.ui
+   *          eventLog: object, controls: object, farmPanel: object}} options.ui
    */
   constructor({ store, transport, canvas, ui }) {
     this.#store = store;
@@ -427,5 +427,6 @@ export class RendererApp {
     this.#ui.inspector.render(this.#store, this.#inspectionDetail);
     this.#ui.metricsPanel.render(this.#store);
     this.#ui.eventLog.render(this.#store);
+    this.#ui.farmPanel.render(this.#store);
   }
 }

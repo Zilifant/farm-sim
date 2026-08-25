@@ -196,7 +196,7 @@ body {
   min-height: 0;
 }
 
-#wator-canvas {
+#farm-canvas {
   display: block;
   /* A crosshair over the grid, since the pointer is aiming at a cell; the hovered
      cell is also framed in yellow corner brackets drawn on the canvas
@@ -207,14 +207,14 @@ body {
   touch-action: none;
 }
 
-#wator-canvas.dragging {
+#farm-canvas.dragging {
   cursor: move;
 }
 
 /* No focus ring on the grid. It is redundant with the on-canvas selection and
    hover marks, and pressing Esc used to flip :focus-visible on and paint a
    purple border around the whole map. */
-#wator-canvas:focus-visible {
+#farm-canvas:focus-visible {
   outline: none;
 }
 
@@ -723,4 +723,35 @@ input:focus-visible {
   & a {
     color: var(--dracula-cyan);
   }
+}
+
+
+/* Farm Office lists: the op queue and the buy list. Compact rows with the
+   action button pushed to the row's end. */
+.farm-list {
+  list-style: none;
+  margin: 0.25rem 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.farm-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.farm-list li button {
+  margin-left: auto;
+  padding: 0 0.45rem;
+}
+
+#farm-panel select,
+#farm-panel input[type='number'] {
+  min-width: 0;
+  flex: 1 1 auto;
 }

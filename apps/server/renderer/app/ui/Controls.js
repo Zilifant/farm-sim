@@ -15,7 +15,7 @@
  * buttons rather than picked from a list: speed is something you nudge while
  * watching, and a dropdown makes you look away from the grid to change it.
  */
-const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8];
+const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
 
 /** Fixed step sizes; the number field covers everything else. */
 const STEP_SIZES = [1, 10, 100];
@@ -55,7 +55,7 @@ export class Controls {
         <button type="button" id="ctl-faster" title="Faster (])">&raquo;</button>
       </div>
       <div class="control-row">
-        <span class="dim">step</span>
+        <span class="dim">days</span>
         ${STEP_SIZES.map((ticks) => `<button type="button" data-step="${ticks}">+${ticks}</button>`).join('')}
         <input type="number" id="ctl-step-n" min="1" max="${MAX_STEP_TICKS}" step="1" value="500" aria-label="Ticks to advance" />
         <button type="button" id="ctl-advance">go</button>
@@ -65,7 +65,7 @@ export class Controls {
         <button type="button" id="ctl-reconnect">Reconnect</button>
       </div>
       <details class="inspector-section">
-        <summary><span class="section-title">New World</span> <span class="section-badge"> from seed</span></summary>
+        <summary><span class="section-title">New Farm</span> <span class="section-badge"> from seed</span></summary>
         <div class="section-body">
           <div class="control-row">
             <label for="ctl-seed" class="dim">Seed</label>
@@ -76,7 +76,7 @@ export class Controls {
             <button type="button" id="ctl-restart-random">Random</button>
             <button type="button" id="ctl-restart-same">Replay Current</button>
           </div>
-          <p class="hint">Same seed, same ocean — every world is reproducible from its number.</p>
+          <p class="hint">Same seed, same weather and markets — every farm is reproducible from its number.</p>
         </div>
       </details>`;
     this.#els = {

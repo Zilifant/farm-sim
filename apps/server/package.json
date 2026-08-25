@@ -9,9 +9,11 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "dependencies": {
-    "@sim/refsim": "workspace:*",
+    "@sim/farm": "workspace:*",
     "@sim/runtime": "workspace:*",
     "express": "^5.1.0",
     "ws": "^8.18.0"

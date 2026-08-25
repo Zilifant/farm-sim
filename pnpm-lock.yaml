@@ -29,9 +29,9 @@ importers:
 
   apps/server:
     dependencies:
-      '@sim/refsim':
+      '@sim/farm':
         specifier: workspace:*
-        version: link:../../packages/refsim
+        version: link:../../packages/farm
       '@sim/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime

@@ -1,22 +1,22 @@
 /**
  * Normalized store of authoritative simulation output, in the biome
  * renderer's mold: the renderer portrays what the host reports and never
- * computes ecological outcomes of its own. Full frames replace the grid
- * (this protocol has no deltas — the world is small enough to resend);
- * census events are deduplicated by `seq` and kept in a bounded buffer; a
- * change of `simulationId` (a restart) clears everything the store holds
- * about the old world.
+ * computes farm outcomes of its own. Full frames replace the world (this
+ * protocol has no deltas — a frame carries the whole map plus the farm's
+ * structured state); farm events are deduplicated by `seq` and kept in a
+ * bounded buffer; a change of `simulationId` (a restart) clears everything
+ * the store holds about the old world.
  *
  * The store owns authoritative-output state plus the selection; camera,
  * hover, and panel state live with their owners.
  */
 
-export const SUPPORTED_PROTOCOL_VERSION = 1;
+export const SUPPORTED_PROTOCOL_VERSION = 2;
 
-/** Bounded retention: census readings kept for the log and the trends. */
+/** Bounded retention: farm events kept for the log. */
 const EVENT_LIMIT = 2000;
-/** Population samples kept for the sparklines (one per applied frame). */
-const HISTORY_LIMIT = 600;
+/** Price/cash samples kept for the sparklines (one per new-tick frame). */
+const HISTORY_LIMIT = 730;
 
 export class RendererProtocolError extends Error {}
 
@@ -38,17 +38,33 @@ export class RendererStore {
   tick = -1;
   /** @type {{width: number, height: number} | null} */
   world = null;
-  /** @type {Uint8Array | null} species code per cell, row-major */
-  species = null;
-  /** @type {{fish: number, sharks: number}} */
-  populations = { fish: 0, sharks: 0 };
+  /** @type {Uint8Array | null} appearance code per cell, row-major */
+  cells = null;
+  /** @type {Uint8Array | null} field id per cell (255 = none), row-major */
+  fieldIds = null;
+  /** @type {object | null} calendar date {year, doy, month, dayOfMonth, season, label} */
+  date = null;
+  /** @type {object | null} today's weather {high, low, rain} */
+  weather = null;
+  /** @type {Array<object>} short-term forecast, nearest first */
+  forecast = [];
+  /** @type {Array<object>} per-field state, by field id */
+  fields = [];
+  /** @type {Array<object>} the operation queue, oldest first */
+  ops = [];
+  /** @type {Array<object>} equipment levels and capacities */
+  equipment = [];
+  /** @type {Array<object>} per-crop market + storage rows */
+  markets = [];
+  /** @type {object | null} cash/debt/net worth/storage summary */
+  finance = null;
   /** The host's reported run state; null means "not yet known". */
   runState = { paused: /** @type {boolean | null} */ (null), speed: 1 };
   /** @type {{cellX: number, cellY: number} | null} */
   selection = null;
-  /** @type {Array<{seq: number, type: string, tick: number, fish?: number, sharks?: number}>} */
+  /** @type {Array<{seq: number, kind: string, tick: number, message: string}>} */
   events = [];
-  /** @type {Array<{tick: number, fish: number, sharks: number}>} */
+  /** @type {Array<{tick: number, cash: number, prices: Record<string, number>}>} */
   history = [];
   #lastEventSeq = 0;
   #listeners = new Set();
@@ -76,18 +92,25 @@ export class RendererStore {
   }
 
   /** @param {number} index row-major cell index @returns {number} */
-  speciesAt(index) {
-    return this.species?.[index] ?? 0;
+  cellAt(index) {
+    return this.cells?.[index] ?? 0;
   }
 
   /** @param {number} cellX @param {number} cellY @returns {number} */
-  speciesAtCell(cellX, cellY) {
+  cellAtXY(cellX, cellY) {
     if (!this.world) return 0;
-    return this.speciesAt(cellY * this.world.width + cellX);
+    return this.cellAt(cellY * this.world.width + cellX);
+  }
+
+  /** The field id under a cell, or null. @param {number} cellX @param {number} cellY */
+  fieldIdAtXY(cellX, cellY) {
+    if (!this.world || !this.fieldIds) return null;
+    const id = this.fieldIds[cellY * this.world.width + cellX];
+    return id === 255 ? null : id;
   }
 
   /**
-   * Apply a full frame, replacing the grid. Validates the protocol version
+   * Apply a full frame, replacing the world. Validates the protocol version
    * and shape; a frame from another simulation (a restart) drops the old
    * world's selection, events, and history.
    * @param {object} frame
@@ -98,13 +121,13 @@ export class RendererStore {
         `unsupported protocol v${frame?.protocolVersion} (this renderer speaks v${SUPPORTED_PROTOCOL_VERSION})`,
       );
     }
-    if (!frame.world || typeof frame.species !== 'string') {
-      throw new RendererProtocolError('snapshot is missing world or species');
+    if (!frame.world || typeof frame.cells !== 'string') {
+      throw new RendererProtocolError('snapshot is missing world or cells');
     }
-    const species = decodeBase64(frame.species);
-    if (species.length !== frame.world.width * frame.world.height) {
+    const cells = decodeBase64(frame.cells);
+    if (cells.length !== frame.world.width * frame.world.height) {
       throw new RendererProtocolError(
-        `species buffer is ${species.length} cells for a ${frame.world.width}x${frame.world.height} world`,
+        `cell buffer is ${cells.length} cells for a ${frame.world.width}x${frame.world.height} world`,
       );
     }
     if (this.simulationId !== null && frame.simulationId !== this.simulationId) {
@@ -117,20 +140,30 @@ export class RendererStore {
     this.simulationId = frame.simulationId ?? null;
     this.seed = frame.seed ?? null;
     this.world = frame.world;
-    this.species = species;
-    this.populations = frame.populations ?? { fish: 0, sharks: 0 };
+    this.cells = cells;
+    this.fieldIds = typeof frame.fieldIds === 'string' ? decodeBase64(frame.fieldIds) : this.fieldIds;
+    this.date = frame.date ?? null;
+    this.weather = frame.weather ?? null;
+    this.forecast = Array.isArray(frame.forecast) ? frame.forecast : [];
+    this.fields = Array.isArray(frame.fields) ? frame.fields : [];
+    this.ops = Array.isArray(frame.ops) ? frame.ops : [];
+    this.equipment = Array.isArray(frame.equipment) ? frame.equipment : [];
+    this.markets = Array.isArray(frame.markets) ? frame.markets : [];
+    this.finance = frame.finance ?? null;
     this.runState = { paused: frame.running === undefined ? null : !frame.running, speed: frame.speed ?? 1 };
     const isNewTick = frame.tick !== this.tick;
     this.tick = frame.tick;
-    if (isNewTick) {
-      this.history.push({ tick: frame.tick, ...this.populations });
+    if (isNewTick && this.finance) {
+      const prices = {};
+      for (const market of this.markets) prices[market.key] = market.price;
+      this.history.push({ tick: frame.tick, cash: this.finance.cash, prices });
       if (this.history.length > HISTORY_LIMIT) this.history.splice(0, this.history.length - HISTORY_LIMIT);
     }
     this.#notify();
   }
 
   /**
-   * Append a census batch, deduplicated by seq (reconnects resend recent
+   * Append a farm-event batch, deduplicated by seq (reconnects resend recent
    * history). A batch from another simulation is ignored — its frame will
    * arrive and reset the store first.
    * @param {object} batch
