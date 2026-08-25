@@ -243,6 +243,9 @@ export const LAND_COST_PER_ACRE = 18;
 
 /** Annual interest rate on the operating debt. */
 export const INTEREST_RATE = 0.065;
+/** Punitive annual rate on a negative cash balance — running the checkbook
+ * red is an implicit loan on far worse terms than the bank's. */
+export const OVERDRAFT_RATE = 0.14;
 /** Borrowing is capped at this fraction of land + equipment value. */
 export const DEBT_LIMIT_RATIO = 0.65;
 

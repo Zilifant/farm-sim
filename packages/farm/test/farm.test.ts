@@ -293,6 +293,14 @@ describe("finances and expansion", () => {
     expect(debt1).toBeLessThan(debt0 * 1.025);
   });
 
+  it("a negative cash balance accrues punitive overdraft interest", async () => {
+    const sim = await createFarmSim({ seed: "overdraft", startCash: 0, startDebt: 0 });
+    await runDays(sim, 60); // wages drive cash below zero with no loan taken
+    const cash = sim.finance().cash;
+    const wagesAlone = -(2 * 160 * 60);
+    expect(cash).toBeLessThan(wagesAlone); // strictly worse than the wages alone
+  });
+
   it("borrowing is capped by assets; repay comes out of cash", async () => {
     const sim = await createFarmSim({ seed: "loans", startDebt: 0, startCash: 10_000 });
     const limit = sim.finance().borrowLimit;

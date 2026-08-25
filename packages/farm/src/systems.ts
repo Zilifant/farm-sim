@@ -7,7 +7,7 @@ import { hashCell, seedToU32, type BufferId, type EventQueue, type System, type 
 import {
   CROPS, CROP_COUNT, DAYS_PER_YEAR, EQUIPMENT, EQUIP_COUNT,
   FERTILIZE_EFFECT, HOURS_PER_WORKER, INTEREST_RATE, IRRIGATE_EFFECT,
-  LAND_COST_PER_ACRE, LATE_PLANT_FLOOR, MUD_BLOCK_MOISTURE,
+  LAND_COST_PER_ACRE, LATE_PLANT_FLOOR, MUD_BLOCK_MOISTURE, OVERDRAFT_RATE,
   OP_FERTILIZE, OP_HARVEST, OP_IRRIGATE, OP_KEYS, OP_PLANT,
   OVERFLOW_SALE_DISCOUNT, PLANT_MIN_HIGH_TEMP, RAIN_BLOCK_INCHES,
   SEASON_END_DOY, STORAGE_CAPACITY, WAGE_PER_DAY,
@@ -774,6 +774,12 @@ export class FinanceSystem implements System {
     const interest = (this.#money[M_DEBT]! * INTEREST_RATE) / DAYS_PER_YEAR;
     this.#money[M_DEBT]! += interest;
     this.#ytd[YTD_INTEREST]! += interest;
+
+    if (this.#money[M_CASH]! < 0) {
+      const overdraft = (-this.#money[M_CASH]! * OVERDRAFT_RATE) / DAYS_PER_YEAR;
+      this.#money[M_CASH]! -= overdraft;
+      this.#ytd[YTD_INTEREST]! += overdraft;
+    }
 
     const wages = this.#workers[0]! * WAGE_PER_DAY;
     this.#money[M_CASH]! -= wages;
