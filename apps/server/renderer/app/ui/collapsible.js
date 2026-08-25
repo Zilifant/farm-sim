@@ -11,7 +11,7 @@
  * Legend collapses on its own (it is a `<details>`), so it is not passed here.
  */
 
-const STORAGE_KEY = 'wator.collapsedSections.v1';
+const STORAGE_KEY = 'farm.collapsedSections.v1';
 
 function loadCollapsed() {
   try {

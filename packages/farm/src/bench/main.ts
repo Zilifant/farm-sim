@@ -1,7 +1,7 @@
 // Benchmark CLI.
-//   node packages/refsim/dist/bench/main.js run    [--full]
-//   node packages/refsim/dist/bench/main.js record [--full] [--baseline <path>]
-//   node packages/refsim/dist/bench/main.js check  [--tolerance 0.2] [--baseline <path>]
+//   node packages/farm/dist/bench/main.js run    [--full]
+//   node packages/farm/dist/bench/main.js record [--full] [--baseline <path>]
+//   node packages/farm/dist/bench/main.js check  [--tolerance 0.2] [--baseline <path>]
 // `check` re-measures the quick set and fails (exit 1) when a metric's
 // calibration-normalized value regresses beyond the tolerance
 // (BENCH_TOLERANCE env overrides; CI uses a loose one — shared runners and

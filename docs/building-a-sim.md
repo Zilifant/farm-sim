@@ -220,7 +220,8 @@ Suggested test list for any new sim: hash-identical repeated runs;
 divergence across seeds; hash-identical across 1/2/4 workers; save at T →
 restore → 2T equality; replay-log reproduction; crash → fail-fast/recovery.
 
-For a fuller worked example (toroidal grid, border exchange, all three
-execution modes), see `@sim/refsim` — but nothing above requires it. When
-you are ready to replace it with your own simulation, follow the
-step-by-step recipe in `docs/replacing-the-reference-sim.md`.
+For a worked example of a complete sim on this runtime, see `@sim/farm` —
+but nothing above requires it. The Wa-Tor reference sim that originally
+accompanied this document (toroidal grid, border exchange, all three
+execution modes) lives in git history; `docs/replacing-the-reference-sim.md`
+records how it was replaced.

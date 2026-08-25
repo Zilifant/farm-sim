@@ -1,6 +1,6 @@
 // Phase 7 boundary test: a complete second simulation built from
 // @sim/runtime alone — the code mirrors the skeleton in
-// docs/building-a-sim.md. If this file ever needs a refsim import, the
+// docs/building-a-sim.md. If this file ever needs a domain-package import, the
 // extraction boundary is wrong (and the lint rule will say so).
 //
 // The sim: `walkers` random walkers on a ring of `ring` cells; each tick

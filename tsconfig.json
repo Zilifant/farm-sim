@@ -3,7 +3,6 @@
   "references": [
     { "path": "packages/runtime" },
     { "path": "packages/farm" },
-    { "path": "packages/refsim" },
     { "path": "apps/server" }
   ]
 }

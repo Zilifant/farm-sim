@@ -19,10 +19,6 @@ reinvesting in land and equipment across multiple simulated years.
   queue, commodity markets, storage, finances with daily interest and an
   asset-capped credit line, expansion, and year-end summaries. Deterministic:
   (seed, config, command log) reproduces a run exactly.
-- `packages/refsim` — `@sim/refsim`: the Wa-Tor reference simulation the
-  runtime was built against. Kept as the worked example of the parallel
-  (worker/SAB) execution modes and as the benchmark subject; the hosted app
-  no longer uses it.
 - `apps/server` — `@sim/server`: Express 5 control API over the hosted farm
   (start/pause/speed/step, farm commands, binary snapshot download/restore,
   SSE state stream), plus the **browser ASCII renderer** served at `/` with
@@ -67,5 +63,5 @@ and save/restore/replay equality.
 
 - `docs/building-a-sim.md` — how to build a sim on `@sim/runtime`.
 - `docs/replacing-the-reference-sim.md` — the recipe this project followed
-  to swap the reference sim out; still the map of what remains of Wa-Tor.
+  to replace the runtime's original reference sim (retired history).
 - `apps/server/renderer/README-RENDERER.md` — renderer operation and seams.

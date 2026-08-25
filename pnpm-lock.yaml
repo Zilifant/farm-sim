@@ -60,19 +60,6 @@ importers:
       '@sim/runtime':
         specifier: workspace:*
         version: link:../runtime
-    devDependencies:
-      '@types/node':
-        specifier: ^22.17.0
-        version: 22.20.1
-      typescript:
-        specifier: ^5.9.2
-        version: 5.9.3
-
-  packages/refsim:
-    dependencies:
-      '@sim/runtime':
-        specifier: workspace:*
-        version: link:../runtime
       tinybench:
         specifier: ^6.1.2
         version: 6.1.2

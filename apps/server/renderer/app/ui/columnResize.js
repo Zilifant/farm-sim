@@ -22,7 +22,7 @@
  * in the store.
  */
 
-const STORAGE_KEY = 'wator.columnWidths.v1';
+const STORAGE_KEY = 'farm.columnWidths.v1';
 
 /** How far one arrow key moves a column edge, and how far Shift+arrow does. */
 const KEY_STEP_PX = 16;

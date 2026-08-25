@@ -2,7 +2,7 @@
 // the appearance-code scheme the renderer draws from. The sim itself only
 // needs acreage; the grid exists for presentation and inspection, so the
 // renderer can stay a pure grid-of-glyphs view (one byte per cell on the
-// wire, exactly like Wa-Tor's species buffer).
+// wire).
 
 import { CROP_COUNT } from "./catalog.js";
 
