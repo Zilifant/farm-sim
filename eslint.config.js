@@ -32,9 +32,9 @@ export default tseslint.config(
           ],
           patterns: [
             {
-              group: ["@sim/refsim", "@sim/refsim/*", "**/refsim/**", "**/wator*"],
+              group: ["@sim/refsim", "@sim/refsim/*", "**/refsim/**", "**/wator*", "@sim/farm", "@sim/farm/*", "**/farm/**"],
               message:
-                "@sim/runtime must have zero Wa-Tor/refsim imports (Phase 7 extraction boundary).",
+                "@sim/runtime must import no domain package (Phase 7 extraction boundary).",
             },
           ],
         },
@@ -43,7 +43,7 @@ export default tseslint.config(
   },
   {
     // Sim packages never depend on the server layer.
-    files: ["packages/refsim/**/*.ts"],
+    files: ["packages/refsim/**/*.ts", "packages/farm/**/*.ts"],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
@@ -94,8 +94,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["@sim/runtime/*", "@sim/refsim/*"],
-              message: "Use only the public package entry points (@sim/runtime, @sim/refsim).",
+              group: ["@sim/runtime/*", "@sim/refsim/*", "@sim/farm/*"],
+              message: "Use only the public package entry points (@sim/runtime, @sim/refsim, @sim/farm).",
             },
           ],
         },
