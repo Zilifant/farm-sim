@@ -1,5 +1,12 @@
 # Replacing the reference simulation
 
+> **Status in this repo: complete.** The farm sim (`@sim/farm`) executed
+> every step of this recipe — built alongside Wa-Tor, took over the server
+> and renderer, inherited the benchmark harness, and `@sim/refsim` was then
+> deleted. This document is kept as the record of the extraction and as the
+> recipe for any future sim swap; Wa-Tor itself remains available in git
+> history.
+
 Wa-Tor (`@sim/refsim`) is a demo/placeholder. Its job is to prove the
 runtime works and to be a worked example of every pattern — it is meant to
 be replaced by your simulation. This document is the mechanical recipe for

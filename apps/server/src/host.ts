@@ -1,23 +1,19 @@
-// Owns the running simulation: a Wa-Tor sim driven continuously by a
-// FixedStepClock. Deliberately independent of HTTP — the Express app and the
-// WebSocket layer hold a reference to a SimHost, never the other way around,
-// so closing the server leaves the simulation ticking. Uses only the public
-// @sim/runtime and @sim/refsim APIs.
+// Owns the running simulation: a farm sim driven continuously by a
+// FixedStepClock (one tick = one simulated day). Deliberately independent of
+// HTTP — the Express app and the WebSocket layer hold a reference to a
+// SimHost, never the other way around, so closing the server leaves the
+// simulation ticking. Uses only the public @sim/runtime and @sim/farm APIs.
 
-import { FixedStepClock, decodeSnapshot, encodeSnapshot, viewFromSnapshotBuffer } from "@sim/runtime";
+import { FixedStepClock, decodeSnapshot, encodeSnapshot } from "@sim/runtime";
 import {
-  BREED_AGE,
-  ENERGY,
-  SPECIES,
-  createWaTorSim,
-  type CensusEvent,
-  type SpawnOptions,
-  type WaTorConfig,
-  type WaTorSim,
-} from "@sim/refsim";
+  FARMSTEAD_RECT, FARM_COMMAND_KINDS, NO_FIELD, WORLD_HEIGHT, WORLD_WIDTH,
+  buildCellCodes, buildFieldIdMap, createFarmSim,
+  type CalendarDate, type DailyWeather, type FarmCommand, type FarmConfig,
+  type FarmEvent, type FarmSim, type FieldView, type ForecastDay,
+} from "@sim/farm";
 
-export interface SimHostOptions extends Partial<WaTorConfig> {
-  /** Sim-time per tick; wall pace = fixedDtMs / speed. Default 60 tps. */
+export interface SimHostOptions extends Partial<FarmConfig> {
+  /** Sim-time per tick; wall pace = fixedDtMs / speed. Default 1 day/second. */
   readonly fixedDtMs?: number;
 }
 
@@ -25,95 +21,99 @@ export interface SimStatus {
   readonly tick: string;
   readonly running: boolean;
   readonly speed: number;
-  readonly fish: number;
-  readonly sharks: number;
+  readonly date: string;
+  readonly season: string;
+  readonly cash: number;
+  readonly debt: number;
+  readonly netWorth: number;
   readonly stateHash: string;
-  readonly lastCensus: { tick: string; fish: number; sharks: number } | null;
 }
 
-/** One census reading, sequenced for the renderer's event feed. */
-export interface CensusRecord {
+/** One farm event, sequenced for the renderer's event feed. */
+export interface FarmEventRecord {
   readonly seq: number;
-  readonly type: "census";
+  readonly kind: string;
   readonly tick: number;
-  readonly fish: number;
-  readonly sharks: number;
+  readonly message: string;
+  readonly data?: Record<string, unknown>;
 }
 
-const CENSUS_RING_LIMIT = 512;
+const EVENT_RING_LIMIT = 512;
 
 export class SimHost {
   readonly clock: FixedStepClock;
-  #sim: WaTorSim;
-  #config: Partial<WaTorConfig>;
+  #sim: FarmSim;
+  #config: Partial<FarmConfig>;
   #restarts = 0;
-  #lastCensus: CensusEvent | null = null;
-  #censusRing: CensusRecord[] = [];
+  #eventRing: FarmEventRecord[] = [];
   #nextSeq = 1;
+  readonly #fieldIds: Uint8Array = buildFieldIdMap();
 
-  private constructor(sim: WaTorSim, config: Partial<WaTorConfig>, fixedDtMs: number) {
+  private constructor(sim: FarmSim, config: Partial<FarmConfig>, fixedDtMs: number) {
     this.#sim = sim;
     this.#config = config;
     this.clock = new FixedStepClock({
       fixedDtMs,
       onTick: () => {
         this.#sim.step();
-        this.#sim.census.drain((e) => {
-          this.#lastCensus = e;
-          this.#censusRing.push({
-            seq: this.#nextSeq,
-            type: "census",
-            tick: Number(e.tick),
-            fish: e.fish,
-            sharks: e.sharks,
-          });
-          this.#nextSeq += 1;
-          if (this.#censusRing.length > CENSUS_RING_LIMIT) {
-            this.#censusRing.splice(0, this.#censusRing.length - CENSUS_RING_LIMIT);
-          }
-        });
+        this.#drainEvents();
       },
     });
   }
 
   static async create(opts: SimHostOptions = {}): Promise<SimHost> {
-    const { fixedDtMs = 1000 / 60, ...cfg } = opts;
-    return new SimHost(await createWaTorSim(cfg), cfg, fixedDtMs);
+    const { fixedDtMs = 1000, ...cfg } = opts;
+    return new SimHost(await createFarmSim(cfg), cfg, fixedDtMs);
   }
 
-  get sim(): WaTorSim {
+  #drainEvents(): void {
+    this.#sim.events.drain((e: FarmEvent) => {
+      this.#eventRing.push({
+        seq: this.#nextSeq,
+        kind: e.kind,
+        tick: Number(e.tick),
+        message: e.message,
+        ...(e.data !== undefined ? { data: e.data } : {}),
+      });
+      this.#nextSeq += 1;
+      if (this.#eventRing.length > EVENT_RING_LIMIT) {
+        this.#eventRing.splice(0, this.#eventRing.length - EVENT_RING_LIMIT);
+      }
+    });
+  }
+
+  get sim(): FarmSim {
     return this.#sim;
   }
 
   /** Changes on every restart — a renderer must drop state it holds about the
    * old world when this moves. */
   get simulationId(): string {
-    return `wator-${String(this.#sim.config.seed)}-${this.#restarts}`;
+    return `farm-${String(this.#sim.config.seed)}-${this.#restarts}`;
   }
 
   get seed(): number | string {
     return this.#sim.config.seed;
   }
 
-  /** Census events at or after `sinceSeq`, oldest first. */
-  censusSince(sinceSeq: number): CensusRecord[] {
-    return this.#censusRing.filter((e) => e.seq >= sinceSeq);
+  /** Farm events at or after `sinceSeq`, oldest first. */
+  eventsSince(sinceSeq: number): FarmEventRecord[] {
+    return this.#eventRing.filter((e) => e.seq >= sinceSeq);
   }
 
   status(): SimStatus {
-    const { fish, sharks } = this.#sim.populations();
-    const census = this.#lastCensus;
+    const date = this.#sim.date();
+    const finance = this.#sim.finance();
     return {
       tick: this.#sim.tick.toString(),
       running: this.clock.running,
       speed: this.clock.speed,
-      fish,
-      sharks,
+      date: date.label,
+      season: date.season,
+      cash: finance.cash,
+      debt: finance.debt,
+      netWorth: finance.netWorth,
       stateHash: `0x${this.#sim.stateHash().toString(16).padStart(8, "0")}`,
-      lastCensus:
-        census === null
-          ? null
-          : { tick: census.tick.toString(), fish: census.fish, sharks: census.sharks },
     };
   }
 
@@ -129,7 +129,7 @@ export class SimHost {
     return this.clock.stepOnce();
   }
 
-  /** Advance N ticks immediately; requires a paused clock. */
+  /** Advance N days immediately; requires a paused clock. */
   async stepTicks(ticks: number): Promise<void> {
     if (!Number.isInteger(ticks) || ticks < 1 || ticks > 10_000) {
       throw new Error("ticks must be a whole number in [1, 10000]");
@@ -143,14 +143,18 @@ export class SimHost {
     this.clock.speed = speed;
   }
 
-  spawn(opts: SpawnOptions): void {
-    this.#sim.spawn(opts);
+  /** Apply a player command (validated by the sim; throws on invalid). */
+  command(cmd: { readonly kind?: unknown } & Record<string, unknown>): void {
+    if (typeof cmd?.kind !== "string" || !FARM_COMMAND_KINDS.includes(cmd.kind)) {
+      throw new Error(`command kind must be one of: ${FARM_COMMAND_KINDS.join(", ")}`);
+    }
+    this.#sim.apply(cmd as unknown as FarmCommand);
   }
 
   /**
-   * Rebuild the world from a seed (host-picked when omitted), keeping the
-   * grid dimensions and rule parameters. The clock keeps its run state and
-   * speed; the census feed restarts with the new simulationId.
+   * Rebuild the farm from a seed (host-picked when omitted), keeping the
+   * config. The clock keeps its run state and speed; the event feed restarts
+   * with the new simulationId.
    */
   async restart(seed?: number): Promise<void> {
     if (seed !== undefined && (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff)) {
@@ -159,38 +163,54 @@ export class SimHost {
     const nextSeed = seed ?? Math.floor(Math.random() * 0x100000000);
     const wasRunning = this.clock.running;
     this.clock.pause();
-    this.#sim = await createWaTorSim({ ...this.#config, seed: nextSeed });
+    this.#sim = await createFarmSim({ ...this.#config, seed: nextSeed });
     this.#restarts += 1;
-    this.#lastCensus = null;
-    this.#censusRing = [];
+    this.#eventRing = [];
     this.#nextSeq = 1;
     if (wasRunning) {
       this.clock.start();
     }
   }
 
-  /** One cell's full state — the renderer's inspection query. */
-  cellInspect(x: number, y: number): { x: number; y: number; species: number; energy: number; breedAge: number } {
-    const { width, height } = this.#sim.config;
-    if (!Number.isInteger(x) || x < 0 || x >= width || !Number.isInteger(y) || y < 0 || y >= height) {
-      throw new Error(`cell must be within the ${width}x${height} grid`);
+  /** What one map cell holds — the renderer's inspection query. */
+  cellInspect(x: number, y: number): { x: number; y: number; kind: string; field: FieldView | null } {
+    if (!Number.isInteger(x) || x < 0 || x >= WORLD_WIDTH || !Number.isInteger(y) || y < 0 || y >= WORLD_HEIGHT) {
+      throw new Error(`cell must be within the ${WORLD_WIDTH}x${WORLD_HEIGHT} map`);
     }
-    const snapshot = this.#sim.captureSnapshot();
-    const idx = y * width + x;
-    return {
-      x,
-      y,
-      species: viewFromSnapshotBuffer<Uint8Array>(snapshot.buffers[SPECIES]!)[idx]!,
-      energy: viewFromSnapshotBuffer<Int16Array>(snapshot.buffers[ENERGY]!)[idx]!,
-      breedAge: viewFromSnapshotBuffer<Int16Array>(snapshot.buffers[BREED_AGE]!)[idx]!,
-    };
+    const fieldId = this.#fieldIds[y * WORLD_WIDTH + x]!;
+    if (fieldId === NO_FIELD) {
+      // The farmstead block is drawn distinctly but carries no field state.
+      const kind = isFarmstead(x, y) ? "farmstead" : "grass";
+      return { x, y, kind, field: null };
+    }
+    return { x, y, kind: "field", field: this.#sim.fields()[fieldId]! };
   }
 
-  /** The species grid as base64 — the renderer's per-frame bulk payload. */
-  speciesBase64(): string {
-    const snapshot = this.#sim.captureSnapshot();
-    const species = viewFromSnapshotBuffer<Uint8Array>(snapshot.buffers[SPECIES]!);
-    return Buffer.from(species).toString("base64");
+  /** The map as appearance codes, base64 — the renderer's per-frame payload. */
+  cellsBase64(): string {
+    const fields = this.#sim.fields();
+    const cells = buildCellCodes((id) => {
+      const f = fields[id]!;
+      return { owned: f.owned, crop: f.cropCode, stage: f.stageCode };
+    });
+    return Buffer.from(cells).toString("base64");
+  }
+
+  /** Static field-id map (255 = no field), base64; constant per simulation. */
+  fieldIdsBase64(): string {
+    return Buffer.from(this.#fieldIds).toString("base64");
+  }
+
+  date(): CalendarDate {
+    return this.#sim.date();
+  }
+
+  weather(): DailyWeather {
+    return this.#sim.weather();
+  }
+
+  forecast(days = 5): ForecastDay[] {
+    return this.#sim.forecast(days);
   }
 
   snapshotBytes(): Uint8Array {
@@ -205,4 +225,9 @@ export class SimHost {
   dispose(): void {
     this.clock.pause();
   }
+}
+
+function isFarmstead(x: number, y: number): boolean {
+  const r = FARMSTEAD_RECT;
+  return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 }

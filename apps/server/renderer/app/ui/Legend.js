@@ -5,12 +5,21 @@
  * That is the whole design, inherited from the biome renderer:
  * `CellAppearance.js` is the single source of glyphs and colours, so a legend
  * that reads from it cannot drift from what is actually drawn, and reskinning
- * a species updates the legend for free.
+ * a crop updates the legend for free.
  *
  * `describeLegend` is pure and returns plain data; only `LegendPanel` touches
  * the DOM.
  */
-import { SPECIES_APPEARANCE, WATER_APPEARANCE, UNKNOWN_APPEARANCE } from '../rendering/CellAppearance.js';
+import {
+  BUCKETS_PER_CROP,
+  BUCKET_GROWING,
+  BUCKET_MATURE,
+  CROP_APPEARANCE,
+  CROP_CODE_BASE,
+  TERRAIN_APPEARANCE,
+  UNKNOWN_APPEARANCE,
+  resolveAppearance,
+} from '../rendering/CellAppearance.js';
 
 /**
  * @typedef {object} LegendEntry
@@ -20,28 +29,34 @@ import { SPECIES_APPEARANCE, WATER_APPEARANCE, UNKNOWN_APPEARANCE } from '../ren
  */
 
 /**
- * Every glyph the grid can draw, grouped for reading.
+ * Every glyph the grid can draw, grouped for reading. Crops show their
+ * growing and mature forms; the dot/sprout stages are shared shapes and get
+ * one generic row rather than six identical ones.
  * @returns {Array<{title: string, entries: LegendEntry[]}>}
  */
 export function describeLegend() {
-  const creatures = Object.values(SPECIES_APPEARANCE).map((appearance) => ({
-    glyph: appearance.glyph,
-    colorToken: appearance.colorToken,
-    label: appearance.label,
-  }));
-  creatures.push({
+  const crops = Object.keys(CROP_APPEARANCE).flatMap((codeKey) => {
+    const cropCode = Number(codeKey);
+    const growing = resolveAppearance(CROP_CODE_BASE + (cropCode - 1) * BUCKETS_PER_CROP + BUCKET_GROWING);
+    const mature = resolveAppearance(CROP_CODE_BASE + (cropCode - 1) * BUCKETS_PER_CROP + BUCKET_MATURE);
+    return [growing, mature].map((a) => ({ glyph: a.glyph, colorToken: a.colorToken, label: a.label }));
+  });
+  crops.push({ glyph: '. ,', colorToken: 'foreground', label: 'planted / germinating (any crop)' });
+  crops.push({
     glyph: UNKNOWN_APPEARANCE.glyph,
     colorToken: UNKNOWN_APPEARANCE.colorToken,
     label: UNKNOWN_APPEARANCE.label,
   });
 
-  const ocean = [
-    { glyph: WATER_APPEARANCE.glyph, colorToken: WATER_APPEARANCE.colorToken, label: WATER_APPEARANCE.label },
-  ];
+  const terrain = Object.values(TERRAIN_APPEARANCE).map((a) => ({
+    glyph: a.glyph,
+    colorToken: a.colorToken,
+    label: a.label,
+  }));
 
   return [
-    { title: 'Creatures', entries: creatures },
-    { title: 'Ocean', entries: ocean },
+    { title: 'Crops', entries: crops },
+    { title: 'Land', entries: terrain },
     { title: 'Overlays', entries: OVERLAY_ENTRIES },
   ];
 }
@@ -53,6 +68,7 @@ export function describeLegend() {
  */
 const OVERLAY_ENTRIES = Object.freeze([
   { glyph: '[]', colorToken: 'bright-yellow', label: 'selected / hovered cell' },
+  { glyph: '▒', colorToken: 'foreground', label: "hovered cell's whole field" },
 ]);
 
 export class LegendPanel {
@@ -74,7 +90,7 @@ export class LegendPanel {
       )
       .join('');
     container.innerHTML = `
-      <details class="inspector-section legend-root" open>
+      <details class="inspector-section legend-root">
         <summary><span class="section-title">Legend</span> <span class="section-badge">what the glyphs mean</span></summary>
         <div class="section-body">${groups}</div>
       </details>`;

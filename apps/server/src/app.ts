@@ -30,7 +30,7 @@ export function createApp(host: SimHost, opts: AppOptions = {}): express.Express
         "POST /sim/pause",
         "POST /sim/step",
         "PUT  /sim/speed        {\"speed\": number}",
-        "POST /sim/spawn        {\"x\", \"y\", \"species\"}",
+        "POST /sim/command      {\"command\": {\"kind\": \"farm.*\", ...}}",
         "GET  /sim/snapshot     (binary)",
         "POST /sim/restore      (binary snapshot body)",
         "GET  /sim/stream       (SSE state frames)",
@@ -75,9 +75,14 @@ export function createApp(host: SimHost, opts: AppOptions = {}): express.Express
     }
   });
 
-  app.post("/sim/spawn", (req, res) => {
+  app.post("/sim/command", (req, res) => {
+    const command = (req.body as { command?: unknown }).command;
+    if (typeof command !== "object" || command === null) {
+      fail(res, 400, new Error("body must be {\"command\": {\"kind\": \"farm.*\", ...}}"));
+      return;
+    }
     try {
-      host.spawn(req.body as Parameters<SimHost["spawn"]>[0]);
+      host.command(command as Record<string, unknown>);
       res.json(host.status());
     } catch (err) {
       fail(res, 400, err);

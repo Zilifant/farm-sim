@@ -20,7 +20,7 @@ const open: TestServer[] = [];
 
 async function startServer(): Promise<TestServer> {
   // Small fixedDtMs so ticks accumulate quickly in wall time.
-  const host = await SimHost.create({ width: 30, height: 30, seed: "server", fixedDtMs: 2 });
+  const host = await SimHost.create({ seed: "server", fixedDtMs: 2 });
   const app = createApp(host, { sseIntervalMs: 25 });
   const server = await new Promise<Server>((resolve) => {
     const s = app.listen(0, () => resolve(s));
@@ -92,25 +92,34 @@ describe("sim control endpoints", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("step while running is a conflict; spawn validates input", async () => {
+  it("step while running is a conflict; commands validate input", async () => {
     const { url } = await startServer();
     await fetch(`${url}/sim/start`, { method: "POST" });
     expect((await fetch(`${url}/sim/step`, { method: "POST" })).status).toBe(409);
     await fetch(`${url}/sim/pause`, { method: "POST" });
 
-    const ok = await fetch(`${url}/sim/spawn`, {
+    const ok = await fetch(`${url}/sim/command`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ x: 3, y: 4, species: 2 }),
+      body: JSON.stringify({ command: { kind: "farm.borrow", amount: 10_000 } }),
     });
     expect(ok.status).toBe(200);
+    const after = (await ok.json()) as SimStatus;
+    expect(after.debt).toBeGreaterThan(200_000); // start debt + the loan
 
-    const bad = await fetch(`${url}/sim/spawn`, {
+    const bad = await fetch(`${url}/sim/command`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ x: 999, y: 4, species: 2 }),
+      body: JSON.stringify({ command: { kind: "farm.sell", crop: 1, units: 5 } }),
     });
-    expect(bad.status).toBe(400);
+    expect(bad.status).toBe(400); // nothing in storage yet
+
+    const malformed = await fetch(`${url}/sim/command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nope: true }),
+    });
+    expect(malformed.status).toBe(400);
   });
 
   it("snapshots round-trip over HTTP as binary", async () => {

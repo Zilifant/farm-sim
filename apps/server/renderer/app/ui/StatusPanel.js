@@ -1,13 +1,24 @@
 /**
  * Top status bar: connection state, mode, simulation identity, run state,
- * tick, populations, camera position, zoom, and the result of the last
- * command. Plain DOM, text-first (connection state and command results are
- * announced via aria-live).
+ * calendar date and season, today's weather, cash, debt, camera position,
+ * zoom, and the result of the last command. Plain DOM, text-first
+ * (connection state and command results are announced via aria-live).
  *
  * The command line reports the command that is current, and nothing else:
  * `RendererApp` clears it the moment another command goes out, and whatever
  * that command reports takes its place.
  */
+
+/** Compact money: $1.23M / $456k / -$78. @param {number} value */
+export function formatMoney(value) {
+  const sign = value < 0 ? '-' : '';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 10_000) return `${sign}$${Math.round(abs / 1000)}k`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
+  return `${sign}$${Math.round(abs)}`;
+}
+
 export class StatusPanel {
   #els;
 
@@ -18,9 +29,11 @@ export class StatusPanel {
       <span class="status-item"><span id="status-mode" class="mode-badge">LIVE</span></span>
       <span class="status-item"><span class="status-label">sim</span> <span id="status-sim">–</span></span>
       <span class="status-item"><span id="status-run">–</span></span>
-      <span class="status-item"><span class="status-label">tick</span> <span id="status-tick">–</span></span>
-      <span class="status-item"><span class="status-label">fish</span> <span id="status-fish">–</span></span>
-      <span class="status-item"><span class="status-label">sharks</span> <span id="status-sharks">–</span></span>
+      <span class="status-item"><span class="status-label">date</span> <span id="status-date">–</span></span>
+      <span class="status-item"><span id="status-season">–</span></span>
+      <span class="status-item"><span class="status-label">wx</span> <span id="status-weather">–</span></span>
+      <span class="status-item"><span class="status-label">cash</span> <span id="status-cash">–</span></span>
+      <span class="status-item"><span class="status-label">debt</span> <span id="status-debt">–</span></span>
       <span class="status-item"><span class="status-label">cam</span> <span id="status-camera">–</span></span>
       <span class="status-item"><span class="status-label">cell</span> <span id="status-zoom">–</span></span>
       <span class="status-item" id="command-status" aria-live="polite"></span>
@@ -29,9 +42,11 @@ export class StatusPanel {
       connection: container.querySelector('#status-connection'),
       sim: container.querySelector('#status-sim'),
       run: container.querySelector('#status-run'),
-      tick: container.querySelector('#status-tick'),
-      fish: container.querySelector('#status-fish'),
-      sharks: container.querySelector('#status-sharks'),
+      date: container.querySelector('#status-date'),
+      season: container.querySelector('#status-season'),
+      weather: container.querySelector('#status-weather'),
+      cash: container.querySelector('#status-cash'),
+      debt: container.querySelector('#status-debt'),
       camera: container.querySelector('#status-camera'),
       zoom: container.querySelector('#status-zoom'),
       command: container.querySelector('#command-status'),
@@ -75,9 +90,14 @@ export class StatusPanel {
       this.#els.run.textContent = store.runState.paused ? 'PAUSED' : `RUNNING ${store.runState.speed}x`;
       this.#els.run.className = store.runState.paused ? 'run-badge paused' : 'run-badge';
     }
-    this.#els.tick.textContent = store.tick >= 0 ? String(store.tick) : '–';
-    this.#els.fish.textContent = String(store.populations.fish);
-    this.#els.sharks.textContent = String(store.populations.sharks);
+    this.#els.date.textContent = store.date?.label ?? (store.tick >= 0 ? `d${store.tick}` : '–');
+    this.#els.season.textContent = store.date?.season ?? '–';
+    this.#els.weather.textContent = store.weather
+      ? `${Math.round(store.weather.high)}°/${Math.round(store.weather.low)}°${store.weather.rain > 0 ? ` ☔${store.weather.rain}"` : ''}`
+      : '–';
+    this.#els.cash.textContent = store.finance ? formatMoney(store.finance.cash) : '–';
+    this.#els.cash.className = store.finance && store.finance.cash < 0 ? 'warn' : '';
+    this.#els.debt.textContent = store.finance ? formatMoney(store.finance.debt) : '–';
     this.#els.camera.textContent = `${Math.floor(camera.centerX)},${Math.floor(camera.centerY)}`;
     this.#els.zoom.textContent = `${camera.cellSize}px`;
   }

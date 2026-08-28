@@ -1,24 +1,26 @@
-// WebSocket layer for the Wa-Tor renderer, speaking the same envelope the
+// WebSocket layer for the farm renderer, speaking the same envelope the
 // biome renderer's transport expects:
 //
 //   server → client:  { type: 'snapshot.full' | 'events.batch' |
 //                       'command.result' | 'error', payload, requestId? }
 //   client → server:  { type: 'command', requestId, command }
 //
-// Full frames only (no deltas): the grid is small enough that a complete
-// species buffer per frame is cheaper than delta bookkeeping. Frames are
-// broadcast on an interval, and only when something changed; every
-// (re)connection starts with a fresh full frame, which is what resynchronizes
-// a client. This module is a thin adapter — all sim knowledge lives behind
-// the SimHost's public methods.
+// Full frames only (no deltas): each frame carries the whole map as
+// appearance codes plus the farm's structured state (fields, ops, markets,
+// finance, weather) — small enough that delta bookkeeping would cost more
+// than it saves. Frames are broadcast on an interval, and only when
+// something changed; every (re)connection starts with a fresh full frame,
+// which is what resynchronizes a client. This module is a thin adapter —
+// all sim knowledge lives behind the SimHost's public methods.
 
 import type { Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
+import { WORLD_HEIGHT, WORLD_WIDTH } from "@sim/farm";
 import type { SimHost } from "./host.js";
 
-export const RENDER_PROTOCOL_VERSION = 1;
+export const RENDER_PROTOCOL_VERSION = 2;
 
-export interface WaTorSocketOptions {
+export interface FarmSocketOptions {
   readonly path?: string;
   /** Broadcast cadence; a frame is only sent when the state moved. */
   readonly streamIntervalMs?: number;
@@ -32,7 +34,6 @@ interface CommandFrame {
 
 function fullSnapshot(host: SimHost): object {
   const status = host.status();
-  const { width, height } = host.sim.config;
   return {
     protocolVersion: RENDER_PROTOCOL_VERSION,
     simulationId: host.simulationId,
@@ -40,9 +41,17 @@ function fullSnapshot(host: SimHost): object {
     tick: Number(status.tick),
     running: status.running,
     speed: status.speed,
-    world: { width, height },
-    species: host.speciesBase64(),
-    populations: { fish: status.fish, sharks: status.sharks },
+    world: { width: WORLD_WIDTH, height: WORLD_HEIGHT },
+    cells: host.cellsBase64(),
+    fieldIds: host.fieldIdsBase64(),
+    date: host.date(),
+    weather: host.weather(),
+    forecast: host.forecast(5),
+    fields: host.sim.fields(),
+    ops: host.sim.ops(),
+    equipment: host.sim.equipment(),
+    markets: host.sim.markets(),
+    finance: host.sim.finance(),
   };
 }
 
@@ -86,8 +95,15 @@ async function executeCommand(host: SimHost, command: NonNullable<CommandFrame["
       await host.restart(typeof seed === "number" ? seed : undefined);
       return runReport(host);
     }
-    case "wator.spawn": {
-      host.spawn(command as unknown as Parameters<SimHost["spawn"]>[0]);
+    case "farm.command": {
+      // The farm's whole player surface rides one envelope: the inner command
+      // carries a `kind` the sim validates (schedule/cancel ops, sell,
+      // borrow/repay, buy field/equipment, set workers).
+      const inner = command["command"];
+      if (typeof inner !== "object" || inner === null) {
+        return { ok: false, error: { code: "bad-request", message: "farm.command needs a command object" } };
+      }
+      host.command(inner as Record<string, unknown>);
       return runReport(host);
     }
     case "cell.inspect": {
@@ -104,10 +120,10 @@ async function executeCommand(host: SimHost, command: NonNullable<CommandFrame["
  * `close()` stops the broadcast timer and drops the clients — the SimHost is
  * untouched, in keeping with the server-dies-sim-lives boundary.
  */
-export function attachWaTorSockets(
+export function attachFarmSockets(
   server: Server,
   host: SimHost,
-  opts: WaTorSocketOptions = {},
+  opts: FarmSocketOptions = {},
 ): { close(): void; clientCount(): number } {
   const wss = new WebSocketServer({ server, path: opts.path ?? "/ws" });
   const streamIntervalMs = opts.streamIntervalMs ?? 100;
@@ -119,7 +135,7 @@ export function attachWaTorSockets(
   };
 
   const sendEvents = (socket: WebSocket, sinceSeq: number): number => {
-    const events = host.censusSince(sinceSeq);
+    const events = host.eventsSince(sinceSeq);
     if (events.length > 0) {
       send(socket, {
         type: "events.batch",
@@ -130,12 +146,12 @@ export function attachWaTorSockets(
     return sinceSeq;
   };
 
-  /** Per-client census watermark and the sim the client last saw. */
+  /** Per-client event watermark and the sim the client last saw. */
   const clients = new Map<WebSocket, { sinceSeq: number; simulationId: string }>();
 
   wss.on("connection", (socket) => {
     // A fresh full frame on every (re)connection resynchronizes the client;
-    // recent census history follows so the event log is not empty on arrival.
+    // recent event history follows so the log is not empty on arrival.
     send(socket, { type: "snapshot.full", payload: fullSnapshot(host) });
     const state = { sinceSeq: 1, simulationId: host.simulationId };
     state.sinceSeq = sendEvents(socket, state.sinceSeq);
@@ -193,8 +209,10 @@ export function attachWaTorSockets(
         }
       }
     }
+    // Events flow on the same cadence, per-client from its watermark. A
+    // client that saw a different simulationId (a restart) resets to the
+    // fresh feed's start.
     for (const [socket, state] of clients) {
-      // A restart resets the census sequence; reset the watermark with it.
       if (state.simulationId !== host.simulationId) {
         state.simulationId = host.simulationId;
         state.sinceSeq = 1;
@@ -209,10 +227,12 @@ export function attachWaTorSockets(
     close(): void {
       clearInterval(timer);
       for (const socket of clients.keys()) {
-        socket.terminate();
+        socket.close();
       }
       wss.close();
     },
-    clientCount: () => clients.size,
+    clientCount(): number {
+      return clients.size;
+    },
   };
 }

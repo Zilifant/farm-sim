@@ -1,11 +1,11 @@
 // The renderer's WebSocket protocol, tested against a real listening server:
-// full frames on connect and on change, the command envelope, census event
+// full frames on connect and on change, the command envelope, farm event
 // batches, and restart semantics.
 
 import { afterAll, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { WebSocket } from "ws";
-import { SimHost, attachWaTorSockets, createApp } from "@sim/server";
+import { SimHost, attachFarmSockets, createApp } from "@sim/server";
 
 interface Frame {
   type: string;
@@ -16,11 +16,16 @@ interface Frame {
     speed?: number;
     seed?: number | string;
     simulationId?: string;
-    species?: string;
+    cells?: string;
+    fieldIds?: string;
     world?: { width: number; height: number };
-    events?: Array<{ seq: number; type: string; tick: number; fish: number; sharks: number }>;
+    fields?: Array<{ id: number; name: string; owned: boolean; acres: number }>;
+    ops?: Array<{ seq: number; kind: string }>;
+    markets?: Array<{ key: string; price: number }>;
+    finance?: { cash: number; debt: number };
+    events?: Array<{ seq: number; kind: string; tick: number; message: string }>;
     ok?: boolean;
-    cell?: { x: number; y: number; species: number; energy: number; breedAge: number };
+    cell?: { x: number; y: number; kind: string; field: { name: string; moisture: number } | null };
     error?: { code: string; message: string };
   };
 }
@@ -93,14 +98,14 @@ interface Rig {
 const open: Rig[] = [];
 
 async function startRig(opts: { running?: boolean } = {}): Promise<Rig> {
-  const host = await SimHost.create({ width: 30, height: 30, seed: 42, fixedDtMs: 2 });
+  const host = await SimHost.create({ seed: 42, fixedDtMs: 2 });
   if (opts.running !== false) {
     host.start();
   }
   const server = await new Promise<Server>((resolve) => {
     const s = createApp(host).listen(0, () => resolve(s));
   });
-  const sockets = attachWaTorSockets(server, host, { streamIntervalMs: 20 });
+  const sockets = attachFarmSockets(server, host, { streamIntervalMs: 20 });
   const address = server.address();
   if (address === null || typeof address === "string") {
     throw new Error("no port");
@@ -128,15 +133,20 @@ afterAll(async () => {
 });
 
 describe("renderer WebSocket protocol", () => {
-  it("sends a full frame on connect, and further frames as ticks advance", async () => {
+  it("sends a full frame on connect, and further frames as days advance", async () => {
     const { client } = await startRig();
     const first = await client.frame((f) => f.type === "snapshot.full");
-    expect(first.payload.world).toEqual({ width: 30, height: 30 });
+    expect(first.payload.world).toEqual({ width: 64, height: 40 });
     expect(first.payload.seed).toBe(42);
     expect(first.payload.running).toBe(true);
-    const species = Buffer.from(String(first.payload.species), "base64");
-    expect(species.length).toBe(900);
-    expect(new Set(species).size).toBeGreaterThan(1); // seeded, not blank
+    const cells = Buffer.from(String(first.payload.cells), "base64");
+    expect(cells.length).toBe(64 * 40);
+    expect(new Set(cells).size).toBeGreaterThan(1); // fields, farmstead, lanes
+    const fieldIds = Buffer.from(String(first.payload.fieldIds), "base64");
+    expect(fieldIds.length).toBe(64 * 40);
+    expect(first.payload.fields!.length).toBe(9);
+    expect(first.payload.markets!.length).toBe(6);
+    expect(first.payload.finance!.cash).toBeGreaterThan(0);
 
     const later = await client.fresh(
       (f) => f.type === "snapshot.full" && Number(f.payload.tick) > Number(first.payload.tick),
@@ -165,31 +175,82 @@ describe("renderer WebSocket protocol", () => {
     expect(refused.payload.error?.code).toBe("running");
   }, 15_000);
 
-  it("answers cell.inspect with values consistent with the frame", async () => {
+  it("executes farm commands through the farm.command envelope", async () => {
+    const { client } = await startRig({ running: false });
+    const borrowed = await client.command({
+      type: "farm.command",
+      command: { kind: "farm.borrow", amount: 25_000 },
+    });
+    expect(borrowed.payload.ok).toBe(true);
+    // Commands force a broadcast; match on content so arrival order is moot.
+    const frame = await client.frame(
+      (f) => f.type === "snapshot.full" && (f.payload.finance?.debt ?? 0) > 200_000,
+    );
+    expect(frame.payload.finance!.debt).toBeGreaterThan(200_000); // start debt + loan
+
+    const scheduled = await client.command({
+      type: "farm.command",
+      command: { kind: "farm.op.schedule", op: 1, field: 0, crop: 1 },
+    });
+    expect(scheduled.payload.ok).toBe(true);
+    const withOp = await client.frame(
+      (f) => f.type === "snapshot.full" && (f.payload.ops ?? []).some((op) => op.kind === "plant"),
+    );
+    expect(withOp.payload.ops!.some((op) => op.kind === "plant")).toBe(true);
+
+    // Invalid commands come back as structured failures, not socket errors.
+    const refused = await client.command({
+      type: "farm.command",
+      command: { kind: "farm.sell", crop: 1, units: 100 },
+    });
+    expect(refused.payload.ok).toBe(false);
+    expect(refused.payload.error?.code).toBe("command-failed");
+    const unknown = await client.command({
+      type: "farm.command",
+      command: { kind: "farm.no.such" },
+    });
+    expect(unknown.payload.ok).toBe(false);
+  }, 15_000);
+
+  it("answers cell.inspect for fields and terrain", async () => {
     const { client } = await startRig({ running: false });
     const frame = await client.frame((f) => f.type === "snapshot.full");
-    const species = Buffer.from(String(frame.payload.species), "base64");
-    const occupied = species.findIndex((s) => s !== 0);
-    const x = occupied % 30;
-    const y = Math.floor(occupied / 30);
+    const fieldIds = Buffer.from(String(frame.payload.fieldIds), "base64");
+    const inField = fieldIds.findIndex((id) => id !== 255);
+    const x = inField % 64;
+    const y = Math.floor(inField / 64);
     const inspected = await client.command({ type: "cell.inspect", x, y });
     expect(inspected.payload.ok).toBe(true);
-    expect(inspected.payload.cell?.species).toBe(species[occupied]);
-    expect(inspected.payload.cell?.breedAge).toBeGreaterThanOrEqual(0);
+    expect(inspected.payload.cell?.kind).toBe("field");
+    expect(inspected.payload.cell?.field?.name).toBeDefined();
+    expect(inspected.payload.cell?.field?.moisture).toBeGreaterThan(0);
 
-    const outOfRange = await client.command({ type: "cell.inspect", x: 99, y: 0 });
+    const lane = fieldIds.findIndex((id) => id === 255);
+    const grass = await client.command({ type: "cell.inspect", x: lane % 64, y: Math.floor(lane / 64) });
+    expect(grass.payload.ok).toBe(true);
+    expect(grass.payload.cell?.field).toBeNull();
+
+    const outOfRange = await client.command({ type: "cell.inspect", x: 999, y: 0 });
     expect(outOfRange.payload.ok).toBe(false);
   }, 15_000);
 
-  it("streams census events with monotonic seqs", async () => {
+  it("streams farm events with monotonic seqs once operations run", async () => {
     const { client } = await startRig();
-    const batch = await client.frame((f) => f.type === "events.batch");
+    // Field 4 is small (54 ac) and fertilizing has daily capacity to spare,
+    // so the op completes within a few simulated days.
+    await client.command({
+      type: "farm.command",
+      command: { kind: "farm.op.schedule", op: 2, field: 4, crop: 0 },
+    });
+    const batch = await client.frame(
+      (f) => f.type === "events.batch" && (f.payload.events ?? []).some((e) => e.kind === "op"),
+      10_000,
+    );
     const events = batch.payload.events!;
     expect(events.length).toBeGreaterThan(0);
-    expect(events[0]!.type).toBe("census");
-    expect(events[0]!.fish).toBeGreaterThan(0);
     const seqs = events.map((e) => e.seq);
     expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
+    expect(events.some((e) => e.message.includes("fertilized"))).toBe(true);
   }, 15_000);
 
   it("restart changes the simulationId and resets the tick", async () => {
@@ -203,7 +264,7 @@ describe("renderer WebSocket protocol", () => {
     const fresh = await client.fresh(
       (f) => f.type === "snapshot.full" && f.payload.simulationId === restarted.payload.simulationId,
     );
-    expect(Number(fresh.payload.tick)).toBeLessThan(50); // the new world starts over
+    expect(Number(fresh.payload.tick)).toBeLessThan(50); // the new farm starts over
   }, 15_000);
 
   it("rejects malformed frames and unknown commands without dying", async () => {

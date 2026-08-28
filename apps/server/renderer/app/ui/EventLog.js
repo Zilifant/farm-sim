@@ -1,7 +1,8 @@
 /**
- * Bounded census-event log: one line per census reading the host emits, with
- * the change since the previous reading. Newest first, clipped at the column
- * edge, rendered from the store's bounded buffer.
+ * Bounded farm-event log: one line per event the host emits — operations
+ * completing or failing, harvests, frost, losses, year-end closes. Newest
+ * first, clipped at the column edge, rendered from the store's bounded
+ * buffer.
  */
 
 /**
@@ -10,23 +11,33 @@
  */
 const MAX_RENDERED_EVENTS = 200;
 
-/** A signed population change with a tone. @param {number} delta */
-function change(delta) {
-  if (delta === 0) return '<span class="dim">·</span>';
-  const tone = delta > 0 ? 'ok' : 'warn';
-  return `<span class="${tone}">${delta > 0 ? '▲' : '▼'}${Math.abs(delta)}</span>`;
-}
+/** Tone per event kind; anything unlisted renders neutral. */
+const KIND_TONE = Object.freeze({
+  harvest: 'ok',
+  frost: 'warn',
+  loss: 'warn',
+  year: 'ok',
+});
+
+/** Lead glyph per event kind, so the log scans by shape as well as color. */
+const KIND_GLYPH = Object.freeze({
+  op: '·',
+  harvest: '✓',
+  frost: '❄',
+  loss: '✗',
+  year: '§',
+});
 
 export class EventLog {
   #container;
 
   /** @param {HTMLElement} container */
   constructor(container) {
-    this.#container = container;
     container.innerHTML = `
       <h2>Events</h2>
-      <p class="hint">census readings, every few ticks</p>
+      <p class="hint">operations, harvests, weather damage, year ends</p>
       <ul id="event-log-list"></ul>`;
+    this.#container = container;
   }
 
   /** @param {import('../state/RendererStore.js').RendererStore} store */
@@ -38,12 +49,11 @@ export class EventLog {
     const start = Math.max(0, events.length - MAX_RENDERED_EVENTS);
     for (let i = events.length - 1; i >= start; i -= 1) {
       const event = events[i];
-      if (event.type !== 'census') continue;
-      const previous = i > 0 && events[i - 1].type === 'census' ? events[i - 1] : null;
-      const fishDelta = previous ? event.fish - previous.fish : 0;
-      const sharkDelta = previous ? event.sharks - previous.sharks : 0;
+      const tone = KIND_TONE[event.kind] ?? 'dim';
+      const glyph = KIND_GLYPH[event.kind] ?? '·';
+      const failed = event.data?.failed === true;
       lines.push(
-        `<li><span class="dim">t${event.tick}</span> fish ${event.fish} ${change(fishDelta)} · sharks ${event.sharks} ${change(sharkDelta)}</li>`,
+        `<li><span class="dim">d${event.tick}</span> <span class="${failed ? 'bad' : tone}">${glyph}</span> ${event.message}</li>`,
       );
     }
     list.innerHTML = lines.join('');

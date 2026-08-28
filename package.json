@@ -12,11 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "demo": "node packages/refsim/dist/main.js",
     "serve": "node apps/server/dist/main.js",
-    "bench": "node packages/refsim/dist/bench/main.js run",
-    "bench:record": "node packages/refsim/dist/bench/main.js record",
-    "bench:check": "node packages/refsim/dist/bench/main.js check",
+    "bench": "node packages/farm/dist/bench/main.js run",
+    "bench:record": "node packages/farm/dist/bench/main.js record",
+    "bench:check": "node packages/farm/dist/bench/main.js check",
     "check": "pnpm build && pnpm lint && pnpm test"
   },
   "devDependencies": {
