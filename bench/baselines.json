@@ -1,70 +1,70 @@
 {
   "version": 1,
-  "recordedAt": "2026-08-29T20:20:29.350Z",
+  "recordedAt": "2026-08-29T21:08:04.526Z",
   "machine": {
     "cpus": 4,
-    "model": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
     "node": "v22.22.2"
   },
-  "calibrationOpsPerSec": 761.0782904621187,
+  "calibrationOpsPerSec": 577.2933922588244,
   "metrics": {
     "micro.rng.nextU32": {
-      "value": 17385091.021176036,
+      "value": 12381922.510629158,
       "unit": "ops/sec",
-      "perCalibration": 22842.710453112508
+      "perCalibration": 21448.231829194112
     },
     "micro.rng.nextF64": {
-      "value": 17425179.891509783,
+      "value": 12202263.91185545,
       "unit": "ops/sec",
-      "perCalibration": 22895.38423298002
+      "perCalibration": 21137.02334979208
     },
     "micro.rng.hashCell": {
-      "value": 18539517.41084249,
+      "value": 13709598.155912895,
       "unit": "ops/sec",
-      "perCalibration": 24359.540461449098
+      "perCalibration": 23748.060067464477
     },
     "micro.hash.fnv1a32-64KiB": {
-      "value": 12630.909922797906,
+      "value": 10066.782908699373,
       "unit": "ops/sec",
-      "perCalibration": 16.596071759093995
+      "perCalibration": 17.437897339012014
     },
     "micro.hash.farm-state": {
-      "value": 50513.05539349489,
+      "value": 17396.804977562886,
       "unit": "ops/sec",
-      "perCalibration": 66.37038006014322
+      "perCalibration": 30.135118833584677
     },
     "micro.buffer.copy-1MiB": {
-      "value": 60514.44684570346,
+      "value": 38365.320501053444,
       "unit": "ops/sec",
-      "perCalibration": 79.51146104687827
+      "perCalibration": 66.45723130649084
     },
     "micro.snapshot.encode": {
-      "value": 32646.855429931755,
+      "value": 31016.7820841038,
       "unit": "ops/sec",
-      "perCalibration": 42.895528408922196
+      "perCalibration": 53.72793539649195
     },
     "micro.snapshot.decode": {
-      "value": 31205.332683129298,
+      "value": 29787.37285066971,
       "unit": "ops/sec",
-      "perCalibration": 41.00147524137333
+      "perCalibration": 51.59832634515035
     },
     "macro.farm.quiet-year": {
-      "value": 14385.666799500956,
+      "value": 18357.919785144517,
       "unit": "ticks/sec",
-      "perCalibration": 18.901691166050906,
-      "p95TickMs": 0.0023400000000037835
+      "perCalibration": 31.799982524161486,
+      "p95TickMs": 0.002787999999782187
     },
     "macro.farm.worked-year": {
-      "value": 92602.77785883416,
+      "value": 69690.94389414266,
       "unit": "ticks/sec",
-      "perCalibration": 121.67313010939614,
-      "p95TickMs": 0.004760000000715081
+      "perCalibration": 120.72014824465087,
+      "p95TickMs": 0.06754600000022037
     },
     "macro.farm.decade": {
-      "value": 191787.23953847634,
+      "value": 183829.445357353,
       "unit": "ticks/sec",
-      "perCalibration": 251.99410092491948,
-      "p95TickMs": 0.001983999999538355
+      "perCalibration": 318.4333093404518,
+      "p95TickMs": 0.0022560000006706105
     }
   }
 }

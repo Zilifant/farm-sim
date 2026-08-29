@@ -30,6 +30,15 @@ pnpm build && pnpm serve     # then open http://localhost:3000
   green where placeable, red where blocked — to create a field of any
   width and height. `Esc` cancels. Fields can be plowed under again from
   their window.
+- **Dirt roads**: fields must be reachable — press `R` and drag to grade a
+  dirt road (`░`) from the driveway or public road out to your fields
+  (shift-drag removes). Unreachable fields show ⚠ in the queue and a
+  warning in their window; their work waits until a road arrives.
+  Reachability chains through adjacent fields.
+- **Equipment**: while an operation runs, its machine (an inverse colored
+  cell — planter, applicator, irrigation rig, harvester) drives the field's
+  serpentine sweep cell by cell, and planting/harvesting repaint the swept
+  cells behind it.
 - **Field window**: click a field and a floating window opens beside the
   click — the field's crop, stage, progress, expected yield, and condition
   gauges, plus every action that applies to it: plant (a crop picker with
@@ -100,7 +109,8 @@ on every frame, so a reconnect resynchronizes by construction. A change of
 `farm.command` — an envelope whose inner command (`farm.op.schedule`,
 `farm.op.cancel`, `farm.sell`, `farm.borrow`, `farm.repay`,
 `farm.field.create`, `farm.field.remove`, `farm.parcel.buy`,
-`farm.equip.buy`, `farm.labor.set`) the sim validates.
+`farm.road.build`, `farm.road.remove`, `farm.equip.buy`,
+`farm.labor.set`) the sim validates.
 
 The renderer imports **nothing** from `@sim/runtime` or `@sim/farm` — it
 speaks the protocol purely as message shapes over the transport

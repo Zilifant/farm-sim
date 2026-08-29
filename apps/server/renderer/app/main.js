@@ -46,6 +46,7 @@ ui.farmPanel = new FarmPanel(document.getElementById('farm-panel'), {
   onCommand: (command) => appRef.current.sendCommand(command),
   onStatus: (text, kind) => ui.statusPanel.setCommandStatus(text, kind),
   onPlaceField: () => appRef.current.togglePlaceMode(true),
+  onBuildRoad: () => appRef.current.toggleRoadMode(true),
 });
 ui.controls = new Controls(document.getElementById('controls-panel'), {
   onCommand: (command) => appRef.current.sendCommand(command),

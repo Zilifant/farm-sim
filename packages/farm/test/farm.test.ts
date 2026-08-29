@@ -7,14 +7,15 @@
 import { describe, expect, it } from "vitest";
 import { seedToU32 } from "@sim/runtime";
 import {
-  CORN, EQUIP_HARVESTER, EQUIP_PLANTER, FARM_BORROW, FARM_BUY_EQUIPMENT,
-  FARM_BUY_PARCEL, FARM_CANCEL_OP, FARM_CREATE_FIELD, FARM_REMOVE_FIELD,
-  FARM_REPAY, FARM_SCHEDULE_OP, FARM_SELL, FARM_SET_WORKERS,
+  CORN, EQUIP_HARVESTER, EQUIP_PLANTER, FARM_BORROW, FARM_BUILD_ROAD,
+  FARM_BUY_EQUIPMENT, FARM_BUY_PARCEL, FARM_CANCEL_OP, FARM_CREATE_FIELD,
+  FARM_REMOVE_FIELD, FARM_REMOVE_ROAD, FARM_REPAY, FARM_SCHEDULE_OP,
+  FARM_SELL, FARM_SET_WORKERS,
   HAY, HOMESTEAD_PARCEL_ID, OP_FERTILIZE, OP_HARVEST, OP_IRRIGATE, OP_PLANT,
-  EQUIPMENT, LAND_PRICE_PER_ACRE, PARCELS, SOYBEANS, STORAGE_CAPACITY,
-  TOMATOES, WHEAT, WORLD_WIDTH,
+  EQUIPMENT, LAND_PRICE_PER_ACRE, PARCELS, ROAD_COST_PER_CELL, SOYBEANS,
+  STORAGE_CAPACITY, TOMATOES, WHEAT, WORLD_WIDTH,
   calendarDate, createFarmSim, cropByCode, fieldPlacementError, forecastFor,
-  soilQualityAt, weatherFor,
+  roadPlacementError, soilQualityAt, weatherFor,
   type FarmEvent, type FarmSim,
 } from "@sim/farm";
 
@@ -28,15 +29,27 @@ async function runDays(sim: FarmSim, days: number, collect?: FarmEvent[]): Promi
 }
 
 // The homestead parcel spans x 24..35, y 0..26, minus the farmstead
-// (28,18,6,6) and driveway (30,24,2,3). These rects tile its open ground.
-const HOME_A = { x: 24, y: 0, w: 12, h: 9 }; // 54 ac
-const HOME_B = { x: 24, y: 9, w: 12, h: 9 }; // 54 ac
-const HOME_C = { x: 24, y: 18, w: 4, h: 9 }; // 18 ac
-/** Six 18-acre plots across the homestead's north half. */
+// (28,18,6,6) and driveway (30,24,2,3). The test farm keeps x34 as a road
+// corridor from the public road up the parcel's east side; fields sit west
+// of it, touching it (or each other — reachability is transitive).
+const HOME_A = { x: 24, y: 0, w: 10, h: 9 }; // 45 ac
+const HOME_B = { x: 24, y: 9, w: 10, h: 9 }; // 45 ac
+/** Small plot beside the road corridor (used where a quick field will do). */
+const HOME_SMALL = { x: 30, y: 0, w: 4, h: 9 }; // 18 ac
+/** Six plots across the homestead's north half; the east pair touch the
+ * road corridor, the rest chain through their neighbors. */
 const SMALL_PLOTS = [
-  { x: 24, y: 0, w: 4, h: 9 }, { x: 28, y: 0, w: 4, h: 9 }, { x: 32, y: 0, w: 4, h: 9 },
-  { x: 24, y: 9, w: 4, h: 9 }, { x: 28, y: 9, w: 4, h: 9 }, { x: 32, y: 9, w: 4, h: 9 },
+  { x: 24, y: 0, w: 3, h: 9 }, { x: 27, y: 0, w: 3, h: 9 }, { x: 30, y: 0, w: 4, h: 9 },
+  { x: 24, y: 9, w: 3, h: 9 }, { x: 27, y: 9, w: 3, h: 9 }, { x: 30, y: 9, w: 4, h: 9 },
 ];
+
+/** The dirt-road corridor: column x34 from the parcel's top to the public
+ * road, connecting everything placed against it. */
+const ROAD_LINK = Array.from({ length: 27 }, (_, y) => ({ x: 34, y }));
+
+function linkRoad(sim: FarmSim): void {
+  sim.apply({ kind: FARM_BUILD_ROAD, cells: ROAD_LINK });
+}
 
 /** Create a field and return its slot id. */
 function addField(sim: FarmSim, r: { x: number; y: number; w: number; h: number } = HOME_A): number {
@@ -46,6 +59,7 @@ function addField(sim: FarmSim, r: { x: number; y: number; w: number; h: number 
 
 async function grow(seed: string, crop: number, opts: { fertilize?: boolean; irrigate?: boolean } = {}): Promise<{ sim: FarmSim; field: number; events: FarmEvent[] }> {
   const sim = await createFarmSim({ seed });
+  linkRoad(sim);
   const field = addField(sim, HOME_A);
   const events: FarmEvent[] = [];
   sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop });
@@ -130,7 +144,7 @@ describe("land and field placement", () => {
     expect(() => addField(sim, { x: 24, y: 0, w: 2, h: 8 })).toThrow(/at least/);
     // overlap
     addField(sim, HOME_A);
-    expect(() => addField(sim, { x: 30, y: 4, w: 4, h: 4 })).toThrow(/overlaps/);
+    expect(() => addField(sim, { x: 28, y: 4, w: 4, h: 4 })).toThrow(/overlaps/);
     expect(sim.fields()).toHaveLength(1);
   });
 
@@ -151,6 +165,7 @@ describe("land and field placement", () => {
 
   it("removes an empty field, but never one with a crop or queued work", async () => {
     const sim = await createFarmSim({ seed: "remove" });
+    linkRoad(sim); // so the plant op at the end can actually run
     const field = addField(sim, HOME_A);
     sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_FERTILIZE, field, crop: 0 });
     expect(() => sim.apply({ kind: FARM_REMOVE_FIELD, field })).toThrow(/queued work/);
@@ -191,10 +206,73 @@ describe("land and field placement", () => {
   });
 });
 
+describe("dirt roads and reachability", () => {
+  it("a field with no road stays unworked; building the road unblocks it", async () => {
+    const sim = await createFarmSim({ seed: "roads" });
+    const field = addField(sim, HOME_A); // far from the driveway and road
+    expect(sim.fields()[0]!.reachable).toBe(false);
+    sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_FERTILIZE, field, crop: 0 });
+    await runDays(sim, 10);
+    expect(sim.ops()).toHaveLength(1); // waiting, not failed
+    expect(sim.ops()[0]!.acresDone).toBe(0);
+
+    const cashBefore = sim.finance().cash;
+    linkRoad(sim);
+    expect(sim.finance().cash).toBeCloseTo(cashBefore - ROAD_LINK.length * ROAD_COST_PER_CELL, 2);
+    expect(sim.fields()[0]!.reachable).toBe(true);
+    const events: FarmEvent[] = [];
+    await runDays(sim, 10, events);
+    expect(events.some((e) => e.message.includes("fertilized"))).toBe(true);
+  });
+
+  it("reachability chains through adjacent fields", async () => {
+    const sim = await createFarmSim({ seed: "chain" });
+    linkRoad(sim);
+    for (const plot of SMALL_PLOTS) {
+      addField(sim, plot);
+    }
+    // The east plots touch the corridor; the west ones only touch fields.
+    for (const f of sim.fields()) {
+      expect(f.reachable).toBe(true);
+    }
+    // A lone field with no road and no neighbor is cut off.
+    const lonely = addField(sim, { x: 24, y: 19, w: 4, h: 5 });
+    expect(sim.fields().find((f) => f.id === lonely)!.reachable).toBe(false);
+  });
+
+  it("roads only go on free owned ground, and can be removed again", async () => {
+    const sim = await createFarmSim({ seed: "roadrules" });
+    expect(() => sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 2, y: 2 }] })).toThrow(/not yours/);
+    expect(() => sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 30, y: 20 }] })).toThrow(/farmstead/);
+    expect(() => sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 10, y: 27 }] })).toThrow(/public road/);
+    addField(sim, HOME_SMALL);
+    expect(() => sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 31, y: 2 }] })).toThrow(/field is in the way/);
+
+    sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 34, y: 26 }] });
+    expect(() => sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 34, y: 26 }] })).toThrow(/already a dirt road/);
+    sim.apply({ kind: FARM_REMOVE_ROAD, cells: [{ x: 34, y: 26 }] });
+    expect(() => sim.apply({ kind: FARM_REMOVE_ROAD, cells: [{ x: 34, y: 26 }] })).toThrow(/no dirt road/);
+    // A field cannot be placed over a road.
+    sim.apply({ kind: FARM_BUILD_ROAD, cells: [{ x: 25, y: 2 }] });
+    expect(() => addField(sim, { x: 24, y: 0, w: 4, h: 4 })).toThrow(/dirt road in the way/);
+  });
+
+  it("the pure road checker names each failure", async () => {
+    const owned = new Uint8Array(PARCELS.length);
+    owned[HOMESTEAD_PARCEL_ID] = 1;
+    const noRoads = new Uint8Array(96 * 56);
+    expect(roadPlacementError([{ x: 34, y: 5 }], owned, [], noRoads)).toBeNull();
+    expect(roadPlacementError([], owned, [], noRoads)).toMatch(/no cells/);
+    expect(roadPlacementError([{ x: 2, y: 2 }], owned, [], noRoads)).toMatch(/not yours/);
+    expect(roadPlacementError([{ x: 34, y: 5 }], owned, [{ x: 30, y: 0, w: 6, h: 9 }], noRoads)).toMatch(/field is in the way/);
+  });
+});
+
 describe("operations and capacity", () => {
   it("a plant op waits for its window, then completes over multiple days", async () => {
     const sim = await createFarmSim({ seed: "ops" });
-    const field = addField(sim, HOME_A); // 54 ac
+    linkRoad(sim);
+    const field = addField(sim, HOME_A); // 45 ac
     sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: CORN });
     await runDays(sim, 99);
     // Window opens day 100; nothing before.
@@ -212,6 +290,7 @@ describe("operations and capacity", () => {
   it("one planter is a bottleneck across many fields; upgrading widens it", async () => {
     const plantAll = async (upgrade: boolean): Promise<number[]> => {
       const sim = await createFarmSim({ seed: "bottleneck" });
+      linkRoad(sim);
       if (upgrade) {
         sim.apply({ kind: FARM_BUY_EQUIPMENT, category: EQUIP_PLANTER });
       }
@@ -256,6 +335,7 @@ describe("operations and capacity", () => {
 
   it("a plant op whose window closes fails with an event", async () => {
     const sim = await createFarmSim({ seed: "window" });
+    linkRoad(sim);
     const field = addField(sim, HOME_A);
     const events: FarmEvent[] = [];
     await runDays(sim, 160); // corn window (closes day 152) has passed
@@ -270,6 +350,7 @@ describe("operations and capacity", () => {
 describe("growth and yield", () => {
   it("a crop moves through the growth states to harvest", async () => {
     const sim = await createFarmSim({ seed: "stages" });
+    linkRoad(sim);
     const field = addField(sim, HOME_A);
     sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: CORN });
     const seen = new Set<string>();
@@ -303,6 +384,7 @@ describe("growth and yield", () => {
   it("late planting yields less than in-window planting", async () => {
     const plantOn = async (day: number): Promise<number> => {
       const sim = await createFarmSim({ seed: "late" });
+      linkRoad(sim);
       const field = addField(sim, HOME_A);
       await runDays(sim, day);
       sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: SOYBEANS });
@@ -323,6 +405,7 @@ describe("growth and yield", () => {
     // Year 1 sets the previous crop; year 2 measures corn on both histories.
     const secondYearCorn = async (firstCrop: number): Promise<number> => {
       const sim = await createFarmSim({ seed: "rotate" });
+      linkRoad(sim);
       const field = addField(sim, HOME_B);
       sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: firstCrop });
       await runDays(sim, 200);
@@ -343,7 +426,8 @@ describe("growth and yield", () => {
 
   it("hay gives multiple cuttings in a season", async () => {
     const sim = await createFarmSim({ seed: "hay" });
-    const field = addField(sim, HOME_C); // small: cuttings clear the harvester fast
+    linkRoad(sim);
+    const field = addField(sim, HOME_SMALL); // small: cuttings clear the harvester fast
     sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: HAY });
     const events: FarmEvent[] = [];
     for (let d = 0; d < 365; d += 1) {
@@ -361,6 +445,7 @@ describe("growth and yield", () => {
 
   it("an unharvested crop is lost to winter", async () => {
     const sim = await createFarmSim({ seed: "loss" });
+    linkRoad(sim);
     const field = addField(sim, HOME_A);
     sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: CORN });
     const events: FarmEvent[] = [];
@@ -483,6 +568,7 @@ describe("finances", () => {
 describe("year end", () => {
   it("closes the year with a full summary and resets the annual ledgers", async () => {
     const sim = await createFarmSim({ seed: "year" });
+    linkRoad(sim);
     const field = addField(sim, HOME_A);
     sim.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field, crop: CORN });
     await runDays(sim, 200);

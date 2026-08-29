@@ -25,6 +25,7 @@ export class FarmPanel {
    * @param {(command: object) => Promise<object>} callbacks.onCommand
    * @param {(text: string, kind: 'ok' | 'warn' | 'bad') => void} callbacks.onStatus
    * @param {() => void} callbacks.onPlaceField enter field-placement mode
+   * @param {() => void} callbacks.onBuildRoad enter road-building mode
    */
   constructor(container, callbacks) {
     this.#onCommand = callbacks;
@@ -34,7 +35,8 @@ export class FarmPanel {
         <summary><span class="section-title">Work queue</span> <span class="section-badge" id="farm-queue-badge"></span></summary>
         <div class="section-body">
           <div class="control-row">
-            <button type="button" id="farm-place-field">＋ Place a field (F)</button>
+            <button type="button" id="farm-place-field">＋ Field (F)</button>
+            <button type="button" id="farm-build-road">＋ Dirt road (R)</button>
           </div>
           <ul id="farm-ops-list" class="farm-list"></ul>
           <p class="hint">click a field on the map to work it; ops wait for their window, weather, and machine capacity, in queue order</p>
@@ -97,6 +99,7 @@ export class FarmPanel {
     };
 
     container.querySelector('#farm-place-field').addEventListener('click', () => callbacks.onPlaceField());
+    container.querySelector('#farm-build-road').addEventListener('click', () => callbacks.onBuildRoad());
     this.#els.opsList.addEventListener('click', (event) => {
       const seq = event.target instanceof Element ? event.target.getAttribute('data-cancel') : null;
       if (seq !== null) this.#send({ kind: 'farm.op.cancel', opSeq: Number(seq) });
@@ -187,7 +190,10 @@ export class FarmPanel {
     this.#els.opsList.innerHTML = store.ops
       .map((op) => {
         const progress = op.acresTotal > 0 ? `${Math.round(op.acresDone)}/${Math.round(op.acresTotal)} ac` : '';
-        const badge = op.status === 'active' ? '<span class="ok">▶</span>' : '<span class="dim">…</span>';
+        const unreachable = store.fieldById(op.field)?.reachable === false;
+        const badge = unreachable
+          ? '<span class="bad" title="No road to this field">⚠</span>'
+          : op.status === 'active' ? '<span class="ok">▶</span>' : '<span class="dim">…</span>';
         return `<li>${badge} ${op.kind} ${op.fieldName}${op.crop ? ` · ${op.crop}` : ''} <span class="dim">${progress}</span> <button type="button" data-cancel="${op.seq}" title="Cancel">×</button></li>`;
       })
       .join('') || '<li class="dim">queue is empty</li>';

@@ -36,7 +36,8 @@ maps into `dist/`.
 - `packages/farm` — the farm sim, one tick = one day: `catalog.ts` (crops,
   equipment, economy constants — balance lives here), `layout.ts` (the
   land: road/homestead/parcel geometry, the seeded soil-quality map,
-  field-placement rules, renderer cell codes), `state.ts` (every state buffer +
+  field/road placement rules, road-network reachability, the serpentine
+  work sweep, renderer cell codes), `state.ts` (every state buffer +
   config; `STATE_BUFFERS` order is part of the snapshot/hash schema),
   `weather.ts` (pure counter-hash weather + forecast), `systems.ts`
   (weather → soil → operations → growth → market → finance → year end),
@@ -50,7 +51,9 @@ maps into `dist/`.
 
 The player starts with only the homestead parcel and *places fields freely*
 (dynamic rectangles on owned ground, `MAX_FIELDS` slots); neighboring
-parcels are purchasable to grow the placeable area.
+parcels are purchasable to grow the placeable area. Fields must be
+*reachable* — connected to the driveway/public road by player-built dirt
+roads (or adjacent to a reachable field) — before equipment will work them.
 
 The farm runs single-threaded — a couple dozen fields do not need workers — but keeps
 the runtime's determinism contract: identical state hash across repeated

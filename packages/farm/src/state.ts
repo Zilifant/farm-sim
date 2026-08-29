@@ -4,7 +4,7 @@
 
 import { bufferId, type BufferId, type BufferRegistry } from "@sim/runtime";
 import { CROP_COUNT, EQUIP_COUNT } from "./catalog.js";
-import { PARCEL_COUNT } from "./layout.js";
+import { PARCEL_COUNT, WORLD_HEIGHT, WORLD_WIDTH } from "./layout.js";
 
 // ------------------------------------------------------------ fields
 //
@@ -67,6 +67,8 @@ export const OP_FACTOR_SUM: BufferId = bufferId("farm.op.factorSum"); // f32[MAX
 // ------------------------------------------------------------ land
 
 export const PARCEL_OWNED: BufferId = bufferId("farm.parcel.owned"); // u8[PARCEL_COUNT]
+/** Player-built dirt roads, one flag per world cell. */
+export const DIRT_ROADS: BufferId = bufferId("farm.roads"); // u8[W*H]
 
 // ------------------------------------------------------------ capacity
 
@@ -163,7 +165,7 @@ export const STATE_BUFFERS: readonly BufferId[] = Object.freeze([
   FIELD_CROP, FIELD_PREV_CROP, FIELD_STAGE, FIELD_PROGRESS, FIELD_PLANT_DAY,
   FIELD_MATURE_DAY, FIELD_GROW_DAYS, FIELD_PLANT_FACTOR, FIELD_STRESS,
   FIELD_FERT_SUM, FIELD_DAMAGE, FIELD_CUTTINGS, FIELD_YIELD_EST, FIELD_YIELD_LAST,
-  PARCEL_OWNED,
+  PARCEL_OWNED, DIRT_ROADS,
   OP_KIND, OP_FIELD, OP_CROP, OP_STATUS, OP_ACRES_DONE, OP_SEQ, OP_FACTOR_SUM,
   EQUIP_LEVEL, WORKERS, PRICE, STORED, WEATHER, MONEY, YTD, CROP_YTD,
   FIELD_YTD_UNITS,
@@ -205,6 +207,7 @@ export function defineFarmBuffers(buffers: BufferRegistry): void {
   buffers.define(OP_FACTOR_SUM, { type: Float32Array, length: MAX_OPS });
 
   buffers.define(PARCEL_OWNED, { type: Uint8Array, length: PARCEL_COUNT });
+  buffers.define(DIRT_ROADS, { type: Uint8Array, length: WORLD_WIDTH * WORLD_HEIGHT });
   buffers.define(EQUIP_LEVEL, { type: Uint8Array, length: EQUIP_COUNT });
   buffers.define(WORKERS, { type: Uint8Array, length: 1 });
   buffers.define(PRICE, { type: Float32Array, length: CROP_COUNT + 1 });

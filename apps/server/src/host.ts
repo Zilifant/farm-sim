@@ -6,10 +6,10 @@
 
 import { FixedStepClock, decodeSnapshot, encodeSnapshot } from "@sim/runtime";
 import {
-  FARMSTEAD_RECT, FARM_COMMAND_KINDS, NO_PARCEL, ROAD_RECT,
-  DRIVEWAY_RECT, WORLD_HEIGHT, WORLD_WIDTH,
+  BUCKET_PLANTED, CELL_FALLOW, FARMSTEAD_RECT, FARM_COMMAND_KINDS,
+  NO_PARCEL, ROAD_RECT, DRIVEWAY_RECT, WORLD_HEIGHT, WORLD_WIDTH,
   buildCellCodes, buildFieldIdMap, buildParcelIdMap, createFarmSim,
-  rectContains, soilQualityAt,
+  cropByKey, cropCellCode, rectContains, soilQualityAt,
   type CalendarDate, type DailyWeather, type FarmCommand, type FarmConfig,
   type FarmEvent, type FarmSim, type FieldView, type ForecastDay,
   type ParcelView,
@@ -193,19 +193,48 @@ export class SimHost {
       : rectContains(FARMSTEAD_RECT, x, y) ? "farmstead"
       : rectContains(DRIVEWAY_RECT, x, y) ? "driveway"
       : rectContains(ROAD_RECT, x, y) ? "road"
+      : this.#sim.roads()[y * WORLD_WIDTH + x] === 1 ? "dirt-road"
       : "grass";
     return { x, y, kind, field, parcel, soilQuality };
   }
 
-  /** The map as appearance codes, base64 — the renderer's per-frame payload. */
+  /** The map as appearance codes, base64 — the renderer's per-frame payload.
+   * Fields with an active plant/harvest op show their swept portion cell by
+   * cell (the same serpentine order the renderer's machines drive). */
   cellsBase64(): string {
     const parcelOwned = new Uint8Array(this.#sim.parcels().length);
     for (const p of this.#sim.parcels()) {
       parcelOwned[p.id] = p.owned ? 1 : 0;
     }
+    const workedByField = new Map<number, { cells: number; code: number }>();
+    for (const op of this.#sim.ops()) {
+      if (op.status !== "active" || op.acresDone <= 0 || op.acresTotal <= 0) {
+        continue;
+      }
+      const afterCode =
+        op.kind === "plant" && op.crop !== null ? cropCellCode(cropByKey(op.crop).code, BUCKET_PLANTED)
+        : op.kind === "harvest" ? CELL_FALLOW
+        : null;
+      if (afterCode === null) {
+        continue; // fertilizing/irrigating leaves no visible trace per cell
+      }
+      const field = this.#sim.fields().find((f) => f.id === op.field);
+      if (field !== undefined) {
+        workedByField.set(op.field, {
+          cells: Math.floor((op.acresDone / op.acresTotal) * field.w * field.h),
+          code: afterCode,
+        });
+      }
+    }
     const cells = buildCellCodes(
       parcelOwned,
-      this.#sim.fields().map((f) => ({ rect: f, crop: f.cropCode, stage: f.stageCode })),
+      this.#sim.fields().map((f) => ({
+        rect: f,
+        crop: f.cropCode,
+        stage: f.stageCode,
+        ...(workedByField.has(f.id) ? { worked: workedByField.get(f.id)! } : {}),
+      })),
+      this.#sim.roads(),
     );
     return Buffer.from(cells).toString("base64");
   }

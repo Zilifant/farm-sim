@@ -15,7 +15,7 @@ import {
   OP_STATUS_ACTIVE, OP_STATUS_EMPTY,
   type CropDef,
 } from "./catalog.js";
-import { PARCELS } from "./layout.js";
+import { PARCELS, computeFieldReachability } from "./layout.js";
 import {
   CROP_YTD, CY_COST, CY_REVENUE, CY_STRIDE, CY_UNITS,
   EQUIP_LEVEL, FIELD_ACRES, FIELD_ACTIVE, FIELD_CROP, FIELD_CUTTINGS, FIELD_DAMAGE,
@@ -23,6 +23,7 @@ import {
   FIELD_NUM, FIELD_PLANT_DAY, FIELD_PLANT_FACTOR, FIELD_PREV_CROP,
   FIELD_PROGRESS, FIELD_SOIL_QUALITY, FIELD_STAGE, FIELD_STRESS,
   FIELD_FERT_SUM, FIELD_YIELD_EST, FIELD_YIELD_LAST, FIELD_YTD_UNITS,
+  DIRT_ROADS, FIELD_H, FIELD_W, FIELD_X, FIELD_Y,
   MAX_FIELDS, MAX_OPS, MONEY, M_CASH, M_DEBT,
   OP_ACRES_DONE, OP_CROP, OP_FACTOR_SUM, PARCEL_OWNED,
   OP_FIELD, OP_KIND, OP_SEQ, OP_STATUS, PRICE, STORED, WEATHER,
@@ -226,6 +227,7 @@ const OPS_READS_WRITES: readonly BufferId[] = [
   FIELD_PLANT_FACTOR, FIELD_STRESS, FIELD_FERT_SUM, FIELD_DAMAGE, FIELD_CUTTINGS,
   FIELD_SOIL_QUALITY, FIELD_MOISTURE, FIELD_FERTILITY,
   FIELD_YIELD_LAST, FIELD_YTD_UNITS,
+  FIELD_X, FIELD_Y, FIELD_W, FIELD_H, DIRT_ROADS,
   STORED, MONEY, YTD, CROP_YTD,
 ];
 
@@ -240,7 +242,9 @@ export class OperationsSystem implements System {
     weather: Float32Array; equip: Uint8Array; workers: Uint8Array; price: Float32Array;
     opKind: Uint8Array; opField: Uint8Array; opCrop: Uint8Array; opStatus: Uint8Array;
     opAcres: Float32Array; opSeq: Int32Array; opFactor: Float32Array;
-    acres: Float32Array; active: Uint8Array; num: Uint8Array; crop: Uint8Array; prevCrop: Uint8Array;
+    acres: Float32Array; active: Uint8Array; num: Uint8Array;
+    fx: Uint8Array; fy: Uint8Array; fw: Uint8Array; fh: Uint8Array;
+    dirtRoads: Uint8Array; crop: Uint8Array; prevCrop: Uint8Array;
     stage: Uint8Array; progress: Float32Array; plantDay: Int32Array; matureDay: Int32Array;
     growDays: Int32Array; plantFactor: Float32Array; stress: Float32Array;
     fertSum: Float32Array; damage: Float32Array; cuttings: Uint8Array; soilQ: Float32Array;
@@ -270,6 +274,11 @@ export class OperationsSystem implements System {
       acres: ctx.buffer<Float32Array>(FIELD_ACRES),
       active: ctx.buffer<Uint8Array>(FIELD_ACTIVE),
       num: ctx.buffer<Uint8Array>(FIELD_NUM),
+      fx: ctx.buffer<Uint8Array>(FIELD_X),
+      fy: ctx.buffer<Uint8Array>(FIELD_Y),
+      fw: ctx.buffer<Uint8Array>(FIELD_W),
+      fh: ctx.buffer<Uint8Array>(FIELD_H),
+      dirtRoads: ctx.buffer<Uint8Array>(DIRT_ROADS),
       crop: ctx.buffer<Uint8Array>(FIELD_CROP),
       prevCrop: ctx.buffer<Uint8Array>(FIELD_PREV_CROP),
       stage: ctx.buffer<Uint8Array>(FIELD_STAGE),
@@ -316,6 +325,27 @@ export class OperationsSystem implements System {
     }
     order.sort((x, y) => b.opSeq[x]! - b.opSeq[y]!);
 
+    // Equipment can only work a field it can drive to: adjacent to the
+    // connected road network, or to another reachable field. Computed once
+    // per day, only when there is work queued.
+    let reachableBySlot: boolean[] | null = null;
+    if (order.length > 0) {
+      const slots: number[] = [];
+      for (let f = 0; f < MAX_FIELDS; f += 1) {
+        if (b.active[f] === 1) {
+          slots.push(f);
+        }
+      }
+      const reach = computeFieldReachability(
+        slots.map((f) => ({ x: b.fx[f]!, y: b.fy[f]!, w: b.fw[f]!, h: b.fh[f]! })),
+        b.dirtRoads,
+      );
+      reachableBySlot = new Array<boolean>(MAX_FIELDS).fill(false);
+      slots.forEach((f, i) => {
+        reachableBySlot![f] = reach[i]!;
+      });
+    }
+
     for (const s of order) {
       const kind = b.opKind[s]!;
       const f = b.opField[s]!;
@@ -326,6 +356,9 @@ export class OperationsSystem implements System {
       if (b.active[f] !== 1) {
         this.#fail(ctx, s, "the field no longer exists");
         continue;
+      }
+      if (reachableBySlot !== null && !reachableBySlot[f]) {
+        continue; // no road to the field — the op waits until one exists
       }
       if (kind === OP_PLANT) {
         if (b.crop[f]! !== 0 || b.stage[f]! !== STAGE_UNPLANTED) {

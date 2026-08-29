@@ -18,6 +18,7 @@ import {
 } from "@sim/runtime";
 import {
   CLEAR_COST_PER_ACRE, CROPS, CROP_COUNT, DEBT_LIMIT_RATIO, EQUIPMENT, EQUIP_COUNT,
+  ROAD_COST_PER_CELL,
   LAND_PRICE_PER_ACRE, MAX_EQUIP_LEVEL, MAX_WORKERS, MIN_WORKERS,
   OP_FERTILIZE, OP_HARVEST, OP_IRRIGATE, OP_KEYS, OP_PLANT,
   OP_STATUS_EMPTY, OP_STATUS_QUEUED, STORAGE_CAPACITY,
@@ -25,18 +26,20 @@ import {
   type CalendarDate,
 } from "./catalog.js";
 import {
-  FARM_BORROW, FARM_BUY_EQUIPMENT, FARM_BUY_PARCEL, FARM_CANCEL_OP,
-  FARM_CREATE_FIELD, FARM_REMOVE_FIELD, FARM_REPAY, FARM_SCHEDULE_OP,
-  FARM_SELL, FARM_SET_WORKERS,
-  type BorrowCommand, type BuyEquipmentCommand, type BuyParcelCommand,
-  type CancelOpCommand, type CreateFieldCommand, type FarmCommand,
-  type RemoveFieldCommand, type RepayCommand, type ScheduleOpCommand,
-  type SellCommand, type SetWorkersCommand,
+  FARM_BORROW, FARM_BUILD_ROAD, FARM_BUY_EQUIPMENT, FARM_BUY_PARCEL,
+  FARM_CANCEL_OP, FARM_CREATE_FIELD, FARM_REMOVE_FIELD, FARM_REMOVE_ROAD,
+  FARM_REPAY, FARM_SCHEDULE_OP, FARM_SELL, FARM_SET_WORKERS,
+  type BorrowCommand, type BuildRoadCommand, type BuyEquipmentCommand,
+  type BuyParcelCommand, type CancelOpCommand, type CreateFieldCommand,
+  type FarmCommand, type RemoveFieldCommand, type RemoveRoadCommand,
+  type RepayCommand, type ScheduleOpCommand, type SellCommand,
+  type SetWorkersCommand,
 } from "./commands.js";
 import {
-  HOMESTEAD_PARCEL_ID, PARCELS, PARCEL_COUNT,
-  fieldPlacementError, rectAcres, soilQualityOver,
-  type Rect,
+  HOMESTEAD_PARCEL_ID, PARCELS, PARCEL_COUNT, WORLD_WIDTH,
+  computeFieldReachability, fieldPlacementError, rectAcres, roadPlacementError,
+  soilQualityOver,
+  type Cell, type Rect,
 } from "./layout.js";
 import { makeFarmSnapshot, restoreFarmSnapshot } from "./snapshot.js";
 import {
@@ -53,10 +56,10 @@ import {
   FIELD_PREV_CROP, FIELD_PROGRESS, FIELD_SOIL_QUALITY, FIELD_STAGE,
   FIELD_STRESS, FIELD_FERT_SUM, FIELD_W, FIELD_X, FIELD_Y,
   FIELD_YIELD_EST, FIELD_YIELD_LAST, FIELD_YTD_UNITS,
-  MAX_FIELDS, MAX_OPS, MONEY, M_CASH, M_DEBT, M_NEXT_FIELD_NUM, M_NEXT_OP_SEQ,
+  DIRT_ROADS, MAX_FIELDS, MAX_OPS, MONEY, M_CASH, M_DEBT, M_NEXT_FIELD_NUM, M_NEXT_OP_SEQ,
   OP_ACRES_DONE, OP_CROP, OP_FACTOR_SUM, OP_FIELD, OP_KIND, OP_SEQ, OP_STATUS,
   PARCEL_OWNED, PRICE, STAGE_NAMES, STAGE_UNPLANTED, STORED, WORKERS,
-  YTD, YTD_REVENUE,
+  YTD, YTD_LAND, YTD_REVENUE,
   STATE_BUFFERS, defineFarmBuffers, resolveConfig,
   type FarmConfig,
 } from "./state.js";
@@ -97,6 +100,8 @@ export interface FieldView {
   readonly expectedYield: number;
   readonly lastYield: number;
   readonly cuttings: number;
+  /** Whether equipment can drive to this field (roads/driveway/neighbors). */
+  readonly reachable: boolean;
 }
 
 export interface ParcelView {
@@ -178,6 +183,8 @@ export interface FarmSim {
   /** The active fields (slot ids are stable while a field lives). */
   fields(): FieldView[];
   parcels(): ParcelView[];
+  /** The player-built dirt roads, one flag per world cell (read-only view). */
+  roads(): Uint8Array;
   ops(): OpView[];
   equipment(): EquipmentView[];
   markets(): MarketView[];
@@ -248,6 +255,7 @@ export async function createFarmSim(
     yieldEst: buffers.get<Float32Array>(FIELD_YIELD_EST),
     yieldLast: buffers.get<Float32Array>(FIELD_YIELD_LAST),
     parcelOwned: buffers.get<Uint8Array>(PARCEL_OWNED),
+    dirtRoads: buffers.get<Uint8Array>(DIRT_ROADS),
     opKind: buffers.get<Uint8Array>(OP_KIND),
     opField: buffers.get<Uint8Array>(OP_FIELD),
     opCrop: buffers.get<Uint8Array>(OP_CROP),
@@ -318,10 +326,19 @@ export async function createFarmSim(
     },
     fields(): FieldView[] {
       const rows: FieldView[] = [];
+      const slots: number[] = [];
       for (let f = 0; f < MAX_FIELDS; f += 1) {
         if (b.active[f] !== 1) {
           continue;
         }
+        slots.push(f);
+      }
+      const reachable = computeFieldReachability(
+        slots.map((f) => ({ x: b.fx[f]!, y: b.fy[f]!, w: b.fw[f]!, h: b.fh[f]! })),
+        b.dirtRoads,
+      );
+      for (let i = 0; i < slots.length; i += 1) {
+        const f = slots[i]!;
         const cropCode = b.crop[f]!;
         rows.push({
           id: f,
@@ -344,9 +361,13 @@ export async function createFarmSim(
           expectedYield: b.yieldEst[f]!,
           lastYield: b.yieldLast[f]!,
           cuttings: b.cuttings[f]!,
+          reachable: reachable[i]!,
         });
       }
       return rows;
+    },
+    roads(): Uint8Array {
+      return b.dirtRoads;
     },
     parcels(): ParcelView[] {
       return PARCELS.map((p) => ({
@@ -471,6 +492,7 @@ interface Views {
   stress: Float32Array; fertSum: Float32Array; damage: Float32Array;
   cuttings: Uint8Array; yieldEst: Float32Array; yieldLast: Float32Array;
   parcelOwned: Uint8Array;
+  dirtRoads: Uint8Array;
   opKind: Uint8Array; opField: Uint8Array; opCrop: Uint8Array; opStatus: Uint8Array;
   opAcres: Float32Array; opSeq: Int32Array; opFactor: Float32Array;
   equip: Uint8Array; workers: Uint8Array; price: Float32Array; stored: Float64Array;
@@ -516,6 +538,10 @@ function applyCommand(v: Views, cmd: FarmCommand): void {
       return removeField(v, cmd);
     case FARM_BUY_PARCEL:
       return buyParcel(v, cmd);
+    case FARM_BUILD_ROAD:
+      return buildRoad(v, cmd);
+    case FARM_REMOVE_ROAD:
+      return removeRoad(v, cmd);
     case FARM_BUY_EQUIPMENT:
       return buyEquipment(v, cmd);
     case FARM_SET_WORKERS:
@@ -539,7 +565,7 @@ function activeFieldRects(v: Views): Rect[] {
 
 function createField(v: Views, cmd: CreateFieldCommand): void {
   const r: Rect = { x: cmd.x, y: cmd.y, w: cmd.w, h: cmd.h };
-  const error = fieldPlacementError(r, v.parcelOwned, activeFieldRects(v));
+  const error = fieldPlacementError(r, v.parcelOwned, activeFieldRects(v), v.dirtRoads);
   if (error !== null) {
     throw new Error(error);
   }
@@ -617,6 +643,51 @@ function removeField(v: Views, cmd: RemoveFieldCommand): void {
   v.yieldEst[cmd.field] = 0;
   v.yieldLast[cmd.field] = 0;
   v.fieldYtd[cmd.field] = 0;
+}
+
+function buildRoad(v: Views, cmd: BuildRoadCommand): void {
+  const cells = normalizeCells(cmd.cells);
+  const error = roadPlacementError(cells, v.parcelOwned, activeFieldRects(v), v.dirtRoads);
+  if (error !== null) {
+    throw new Error(error);
+  }
+  const cost = cells.length * ROAD_COST_PER_CELL;
+  if (v.money[M_CASH]! < cost) {
+    throw new Error(`grading ${cells.length} road cells costs $${cost.toLocaleString("en-US")}; not enough cash`);
+  }
+  v.money[M_CASH]! -= cost;
+  v.ytd[YTD_LAND]! += cost;
+  for (const c of cells) {
+    v.dirtRoads[c.y * WORLD_WIDTH + c.x] = 1;
+  }
+}
+
+function removeRoad(v: Views, cmd: RemoveRoadCommand): void {
+  const cells = normalizeCells(cmd.cells);
+  for (const c of cells) {
+    if (v.dirtRoads[c.y * WORLD_WIDTH + c.x] !== 1) {
+      throw new Error(`there is no dirt road at ${c.x},${c.y}`);
+    }
+  }
+  for (const c of cells) {
+    v.dirtRoads[c.y * WORLD_WIDTH + c.x] = 0;
+  }
+}
+
+function normalizeCells(cells: BuildRoadCommand["cells"]): Cell[] {
+  if (!Array.isArray(cells)) {
+    throw new Error("cells must be an array of {x, y}");
+  }
+  const seen = new Set<string>();
+  const out: Cell[] = [];
+  for (const c of cells) {
+    const key = `${c.x},${c.y}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ x: c.x, y: c.y });
+    }
+  }
+  return out;
 }
 
 function buyParcel(v: Views, cmd: BuyParcelCommand): void {

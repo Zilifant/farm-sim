@@ -10,7 +10,7 @@
  * authoritative ticks.
  */
 import { RendererProtocolError } from './state/RendererStore.js';
-import { CELL_OWNED_GRASS, CELL_UNOWNED } from './rendering/CellAppearance.js';
+import { CELL_DIRT_ROAD, CELL_OWNED_GRASS, CELL_UNOWNED } from './rendering/CellAppearance.js';
 import { Camera } from './rendering/Camera.js';
 import { createProjection } from './rendering/GridProjection.js';
 import { AsciiGridRenderer } from './rendering/AsciiGridRenderer.js';
@@ -47,6 +47,12 @@ export class RendererApp {
   #placeMode = false;
   /** @type {{x0: number, y0: number, x1: number, y1: number} | null} */
   #placeDrag = null;
+  /** Road mode: drag paints a dirt-road path (shift-drag erases). */
+  #roadMode = false;
+  /** @type {{cells: Array<{x: number, y: number}>, erase: boolean} | null} */
+  #roadPaint = null;
+  /** Per-operation machine animation: opSeq → sweep index (float). */
+  #machineAnim = new Map();
 
   /**
    * @param {object} options
@@ -89,6 +95,10 @@ export class RendererApp {
 
     this.#transport.connect();
     const frame = () => {
+      const machines = this.#advanceMachines();
+      if (machines.length > 0) {
+        this.#dirty = true; // equipment is moving — animate every frame
+      }
       if (this.#dirty) {
         this.#dirty = false;
         this.#grid.draw({
@@ -96,6 +106,8 @@ export class RendererApp {
           camera: this.#camera,
           hoverCell: this.#hoverCell,
           placement: this.#placementPreview(),
+          roadPaint: this.#roadPaint,
+          machines,
         });
         this.#ui.statusPanel.update(this.#store, this.#camera);
       }
@@ -270,6 +282,7 @@ export class RendererApp {
    * rectangle instead of panning, previewed green (placeable) or red. */
   togglePlaceMode(on = !this.#placeMode) {
     if (this.#placeMode === on) return;
+    if (on && this.#roadMode) this.toggleRoadMode(false);
     this.#placeMode = on;
     this.#placeDrag = null;
     this.#canvas.classList.toggle('placing', on);
@@ -336,6 +349,92 @@ export class RendererApp {
     );
   }
 
+  // ------------------------------------------------------------- road mode
+
+  get buildingRoads() {
+    return this.#roadMode;
+  }
+
+  /** Enter/leave road mode: dragging paints a dirt-road path (shift-drag
+   * erases existing dirt road); release sends the build/remove command. */
+  toggleRoadMode(on = !this.#roadMode) {
+    if (this.#roadMode === on) return;
+    if (on && this.#placeMode) this.togglePlaceMode(false);
+    this.#roadMode = on;
+    this.#roadPaint = null;
+    this.#canvas.classList.toggle('placing', on);
+    this.#ui.statusPanel.setCommandStatus(
+      on
+        ? 'building roads — drag a path on your ground; shift-drag removes (Esc done)'
+        : 'road building done',
+      'ok',
+    );
+    if (on) {
+      this.clearSelection();
+      this.#canvas.focus();
+    }
+    this.#dirty = true;
+  }
+
+  /** Extend the painted path with the cell if it qualifies. */
+  #paintRoadCell(cell) {
+    if (!cell || !this.#roadPaint) return;
+    const want = this.#roadPaint.erase ? CELL_DIRT_ROAD : CELL_OWNED_GRASS;
+    if (this.#store.cellAtXY(cell.cellX, cell.cellY) !== want) return;
+    if (this.#roadPaint.cells.some((c) => c.x === cell.cellX && c.y === cell.cellY)) return;
+    this.#roadPaint.cells.push({ x: cell.cellX, y: cell.cellY });
+    this.#dirty = true;
+  }
+
+  async #finishRoadPaint() {
+    const paint = this.#roadPaint;
+    this.#roadPaint = null;
+    this.#dirty = true;
+    if (!paint || paint.cells.length === 0) return;
+    const command = {
+      type: 'farm.command',
+      command: { kind: paint.erase ? 'farm.road.remove' : 'farm.road.build', cells: paint.cells },
+    };
+    const result = await this.sendCommand(command);
+    this.#ui.statusPanel.setCommandStatus(
+      result?.ok
+        ? `${paint.erase ? 'removed' : 'built'} ${paint.cells.length} road cell${paint.cells.length === 1 ? '' : 's'}`
+        : `road ${paint.erase ? 'removal' : 'building'} failed: ${result?.error?.message ?? 'unknown error'}`,
+      result?.ok ? 'ok' : 'bad',
+    );
+    // Stay in road mode: paths are usually laid in several strokes.
+  }
+
+  // ------------------------------------------------------------- machines
+
+  /**
+   * Advance every active operation's machine along its field's serpentine
+   * sweep toward the authoritative progress point. Presentation only: the
+   * sweep position is derived from the host's acresDone, never the reverse.
+   */
+  #advanceMachines() {
+    const machines = [];
+    const liveSeqs = new Set();
+    for (const op of this.#store.ops) {
+      if (op.status !== 'active' || op.acresTotal <= 0) continue;
+      const field = this.#store.fieldById(op.field);
+      if (!field) continue;
+      const totalCells = field.w * field.h;
+      const target = Math.min(totalCells - 1, (op.acresDone / op.acresTotal) * totalCells);
+      let idx = this.#machineAnim.get(op.seq) ?? 0;
+      idx += (target - idx) * 0.08;
+      if (Math.abs(target - idx) < 0.05) idx = target;
+      this.#machineAnim.set(op.seq, idx);
+      liveSeqs.add(op.seq);
+      const cell = serpentineCell(field, Math.max(0, Math.min(totalCells - 1, Math.floor(idx))));
+      machines.push({ cellX: cell.x, cellY: cell.y, kind: op.kind });
+    }
+    for (const seq of [...this.#machineAnim.keys()]) {
+      if (!liveSeqs.has(seq)) this.#machineAnim.delete(seq);
+    }
+    return machines;
+  }
+
   // -------------------------------------------------------------------- input
 
   /**
@@ -372,6 +471,12 @@ export class RendererApp {
     this.#canvas.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) return;
       this.#setHoverCell(null);
+      if (this.#roadMode) {
+        this.#roadPaint = { cells: [], erase: event.shiftKey };
+        this.#paintRoadCell(this.#cellUnderPointer(event));
+        this.#canvas.setPointerCapture(event.pointerId);
+        return;
+      }
       if (this.#placeMode) {
         const cell = this.#cellUnderPointer(event);
         if (cell) {
@@ -385,6 +490,10 @@ export class RendererApp {
       this.#canvas.setPointerCapture(event.pointerId);
     });
     this.#canvas.addEventListener('pointermove', (event) => {
+      if (this.#roadMode) {
+        if (this.#roadPaint) this.#paintRoadCell(this.#cellUnderPointer(event));
+        return;
+      }
       if (this.#placeMode) {
         if (this.#placeDrag) {
           const cell = this.#cellUnderPointer(event);
@@ -419,6 +528,11 @@ export class RendererApp {
     });
     this.#canvas.addEventListener('pointerleave', () => this.#setHoverCell(null));
     const endDrag = (event) => {
+      if (this.#roadMode) {
+        if (this.#canvas.hasPointerCapture?.(event.pointerId)) this.#canvas.releasePointerCapture(event.pointerId);
+        if (this.#roadPaint) void this.#finishRoadPaint();
+        return;
+      }
       if (this.#placeMode) {
         if (this.#canvas.hasPointerCapture?.(event.pointerId)) this.#canvas.releasePointerCapture(event.pointerId);
         if (this.#placeDrag) void this.#finishPlacement();
@@ -472,8 +586,11 @@ export class RendererApp {
         case '-': case '_': this.#zoom(-1); break;
         case 'c': case 'C': this.recenter(); break;
         case 'f': case 'F': this.togglePlaceMode(); break;
+        case 'r': case 'R': this.toggleRoadMode(); break;
         case 'Escape':
-          if (this.#placeMode) {
+          if (this.#roadMode) {
+            this.toggleRoadMode(false);
+          } else if (this.#placeMode) {
             this.togglePlaceMode(false);
           } else {
             this.clearSelection();
@@ -523,4 +640,16 @@ function normalizeRect({ x0, y0, x1, y1 }) {
   const x = Math.min(x0, x1);
   const y = Math.min(y0, y1);
   return { x, y, w: Math.abs(x1 - x0) + 1, h: Math.abs(y1 - y0) + 1 };
+}
+
+/**
+ * The i-th cell of the serpentine work sweep over a field rect — the same
+ * boustrophedon order the host paints worked cells in (restated from
+ * @sim/farm; a protocol convention, not an import).
+ */
+function serpentineCell(rect, i) {
+  const row = Math.floor(i / rect.w);
+  const col = i - row * rect.w;
+  const x = row % 2 === 0 ? rect.x + col : rect.x + rect.w - 1 - col;
+  return { x, y: rect.y + row };
 }

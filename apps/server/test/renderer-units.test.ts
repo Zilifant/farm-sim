@@ -42,7 +42,7 @@ function frame(overrides: Record<string, unknown> = {}): Record<string, unknown>
     date: { year: 1, doy: 5, month: "Jan", dayOfMonth: 6, season: "winter", label: "Y1 Jan 6" },
     weather: { high: 30, low: 18, rain: 0 },
     forecast: [],
-    fields: [{ id: 3, name: "Field 1", acres: 24, x: 1, y: 1, w: 1, h: 1 }],
+    fields: [{ id: 3, name: "Field 1", acres: 24, x: 1, y: 1, w: 1, h: 1, reachable: true }],
     parcels: [{ id: 0, name: "N1", owned: true, acres: 162, price: 891000, isHomestead: true }],
     ops: [],
     equipment: [],
@@ -174,6 +174,9 @@ describe("legend", () => {
     expect(crops?.entries.map((e) => e.label)).toContain("tomatoes (growing)");
     const land = groups.find((g) => g.title === "Land");
     expect(land?.entries.map((e) => e.label)).toContain("farmstead");
+    expect(land?.entries.map((e) => e.label)).toContain("dirt road (player-built)");
+    const machines = groups.find((g) => g.title === "Equipment");
+    expect(machines?.entries.map((e) => e.label)).toContain("harvester at work");
   });
 });
 

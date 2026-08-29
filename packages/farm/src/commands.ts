@@ -13,6 +13,8 @@ export const FARM_REPAY = "farm.repay";
 export const FARM_CREATE_FIELD = "farm.field.create";
 export const FARM_REMOVE_FIELD = "farm.field.remove";
 export const FARM_BUY_PARCEL = "farm.parcel.buy";
+export const FARM_BUILD_ROAD = "farm.road.build";
+export const FARM_REMOVE_ROAD = "farm.road.remove";
 export const FARM_BUY_EQUIPMENT = "farm.equip.buy";
 export const FARM_SET_WORKERS = "farm.labor.set";
 
@@ -68,6 +70,17 @@ export interface BuyParcelCommand extends SimCommand {
   readonly parcel: number;
 }
 
+export interface BuildRoadCommand extends SimCommand {
+  readonly kind: typeof FARM_BUILD_ROAD;
+  /** Cells to grade into dirt road; each must be free owned ground. */
+  readonly cells: ReadonlyArray<{ readonly x: number; readonly y: number }>;
+}
+
+export interface RemoveRoadCommand extends SimCommand {
+  readonly kind: typeof FARM_REMOVE_ROAD;
+  readonly cells: ReadonlyArray<{ readonly x: number; readonly y: number }>;
+}
+
 export interface BuyEquipmentCommand extends SimCommand {
   readonly kind: typeof FARM_BUY_EQUIPMENT;
   /** Equipment category (EQUIP_PLANTER..EQUIP_IRRIGATOR). */
@@ -88,12 +101,15 @@ export type FarmCommand =
   | CreateFieldCommand
   | RemoveFieldCommand
   | BuyParcelCommand
+  | BuildRoadCommand
+  | RemoveRoadCommand
   | BuyEquipmentCommand
   | SetWorkersCommand;
 
 export const FARM_COMMAND_KINDS: readonly string[] = Object.freeze([
   FARM_SCHEDULE_OP, FARM_CANCEL_OP, FARM_SELL, FARM_BORROW, FARM_REPAY,
   FARM_CREATE_FIELD, FARM_REMOVE_FIELD, FARM_BUY_PARCEL,
+  FARM_BUILD_ROAD, FARM_REMOVE_ROAD,
   FARM_BUY_EQUIPMENT, FARM_SET_WORKERS,
 ]);
 

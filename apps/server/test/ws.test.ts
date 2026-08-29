@@ -272,11 +272,12 @@ describe("renderer WebSocket protocol", () => {
 
   it("streams farm events with monotonic seqs once operations run", async () => {
     const { client } = await startRig();
-    // A small field, then a fertilizer pass with capacity to spare — the op
-    // completes within a few simulated days.
+    // A small field beside the public road (reachable with no dirt roads),
+    // then a fertilizer pass with capacity to spare — the op completes
+    // within a few simulated days.
     await client.command({
       type: "farm.command",
-      command: { kind: "farm.field.create", x: 24, y: 0, w: 6, h: 6 },
+      command: { kind: "farm.field.create", x: 24, y: 24, w: 6, h: 3 },
     });
     await client.command({
       type: "farm.command",

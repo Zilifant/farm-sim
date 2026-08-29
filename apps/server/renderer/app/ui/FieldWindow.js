@@ -240,6 +240,9 @@ export class FieldWindow {
     }
 
     const rows = [];
+    if (field.reachable === false) {
+      rows.push(`<div class="field"><span>access</span><span class="bad">no road — press R to build one</span></div>`);
+    }
     {
       if (field.crop) {
         const crop = Object.values(CROP_APPEARANCE).find((c) => c.key === field.crop);

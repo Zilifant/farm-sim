@@ -47,6 +47,7 @@ export const CELL_ROAD = 2;
 export const CELL_FALLOW = 3;
 export const CELL_OWNED_GRASS = 4;
 export const CELL_DRIVEWAY = 5;
+export const CELL_DIRT_ROAD = 6;
 /** Crop cells: code = CROP_CODE_BASE + (crop - 1) * BUCKETS_PER_CROP + bucket. */
 export const CROP_CODE_BASE = 8;
 export const BUCKETS_PER_CROP = 4;
@@ -77,6 +78,19 @@ export const TERRAIN_APPEARANCE = Object.freeze({
   [CELL_FALLOW]: Object.freeze({ glyph: '~', colorToken: 'comment', label: 'fallow field' }),
   [CELL_OWNED_GRASS]: Object.freeze({ glyph: '.', colorToken: 'comment', label: 'your ground (place fields here)' }),
   [CELL_DRIVEWAY]: Object.freeze({ glyph: '=', colorToken: 'orange', label: 'driveway' }),
+  [CELL_DIRT_ROAD]: Object.freeze({ glyph: '░', colorToken: 'orange', label: 'dirt road (player-built)' }),
+});
+
+/**
+ * Farm equipment at work, keyed by operation kind. Machines draw as an
+ * inverse cell — a filled square in the machine's color with the glyph
+ * punched out dark — so they pop against any crop.
+ */
+export const EQUIPMENT_APPEARANCE = Object.freeze({
+  plant: Object.freeze({ glyph: '▼', colorToken: 'green', label: 'planter at work' }),
+  fertilize: Object.freeze({ glyph: '▒', colorToken: 'purple', label: 'applicator at work' }),
+  irrigate: Object.freeze({ glyph: '║', colorToken: 'cyan', label: 'irrigation rig at work' }),
+  harvest: Object.freeze({ glyph: '█', colorToken: 'yellow', label: 'harvester at work' }),
 });
 
 export const UNKNOWN_APPEARANCE = Object.freeze({ glyph: '?', colorToken: 'foreground', label: 'unknown' });
