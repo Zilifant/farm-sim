@@ -5,7 +5,8 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryReplayLog } from "@sim/runtime";
 import {
-  CORN, FARM_BORROW, FARM_SCHEDULE_OP, FARM_SELL, OP_FERTILIZE, OP_HARVEST, OP_PLANT,
+  CORN, FARM_BORROW, FARM_CREATE_FIELD, FARM_SCHEDULE_OP, FARM_SELL,
+  OP_FERTILIZE, OP_HARVEST, OP_PLANT,
   SOYBEANS, createFarmSim, type FarmCommand, type FarmSim,
 } from "@sim/farm";
 
@@ -18,6 +19,8 @@ async function scriptedRun(seed: number | string): Promise<FarmSim> {
     }
     sim.apply(cmd);
   };
+  at(3, { kind: FARM_CREATE_FIELD, x: 24, y: 0, w: 12, h: 9 });
+  at(3, { kind: FARM_CREATE_FIELD, x: 24, y: 9, w: 12, h: 9 });
   at(5, { kind: FARM_BORROW, amount: 50_000 });
   at(10, { kind: FARM_SCHEDULE_OP, op: OP_PLANT, field: 0, crop: CORN });
   at(10, { kind: FARM_SCHEDULE_OP, op: OP_FERTILIZE, field: 0, crop: 0 });
@@ -72,10 +75,11 @@ describe("determinism", () => {
     const original = await createFarmSim({ seed: "replay" }, { record: log });
     original.run(8);
     original.apply({ kind: FARM_BORROW, amount: 25_000 });
+    original.apply({ kind: FARM_CREATE_FIELD, x: 24, y: 0, w: 8, h: 10 });
     original.run(100);
-    original.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field: 3, crop: CORN });
+    original.apply({ kind: FARM_SCHEDULE_OP, op: OP_PLANT, field: 0, crop: CORN });
     original.run(292);
-    expect(log.size).toBe(2);
+    expect(log.size).toBe(3);
 
     const replayed = await createFarmSim({ seed: "replay" });
     for (const [tick, batch] of log.entries()) {

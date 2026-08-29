@@ -13,11 +13,14 @@ reinvesting in land and equipment across multiple simulated years.
   (clock, scheduler, workers, memory, messaging, rng, events, snapshot,
   profile). Domain-free; see `docs/building-a-sim.md`.
 - `packages/farm` — `@sim/farm`: the farm simulation. One tick is one day.
-  Fields (soil quality, moisture, fertility, rotation memory), counter-hash
-  weather with a decaying-confidence forecast, six crops with planting
-  windows and condition-driven yields, a capacity-constrained operation
-  queue, commodity markets, storage, finances with daily interest and an
-  asset-capped credit line, expansion, and year-end summaries. Deterministic:
+  The player starts with a homestead on one parcel and places fields freely
+  on owned ground (any rectangle, anywhere the seeded soil-quality map
+  makes attractive); neighboring parcels are purchasable. Fields carry soil
+  quality, moisture, fertility, and rotation memory; counter-hash weather
+  with a decaying-confidence forecast, six crops with planting windows and
+  condition-driven yields, a capacity-constrained operation queue,
+  commodity markets, storage, finances with daily interest and an
+  asset-capped credit line, and year-end summaries. Deterministic:
   (seed, config, command log) reproduces a run exactly.
 - `apps/server` — `@sim/server`: Express 5 control API over the hosted farm
   (start/pause/speed/step, farm commands, binary snapshot download/restore,
@@ -33,12 +36,14 @@ pnpm serve          # farm + renderer at http://localhost:3000
 pnpm check          # build + lint + test
 ```
 
-Open http://localhost:3000: the map shows the farm's fields; the Farm
-Office panel queues operations (plant/fertilize/irrigate/harvest), sells
-from storage, manages the loan and crew, and buys land and machines. Click
-any cell to inspect its field; the Markets panel tracks prices; the event
-log records operations, harvests, weather damage, and year-end closes.
-Speed runs from 0.25× to 32× (one simulated day per second at 1×).
+Open http://localhost:3000: the map shows your homestead and the land
+around it. Press `F` (or the Farm Office button) and drag a rectangle on
+your ground to place a field of any size; click a field for its floating
+window (plant, fertilize, irrigate, harvest, plow under); click `$` ground
+to buy the parcel. The Farm Office panel sells from storage, manages the
+loan and crew, and upgrades machinery; the Markets panel tracks prices;
+the event log records operations, harvests, weather damage, and year-end
+closes. Speed runs from 0.25× to 32× (one simulated day per second at 1×).
 
 ## The simulation
 

@@ -15,15 +15,16 @@ import {
   OP_STATUS_ACTIVE, OP_STATUS_EMPTY,
   type CropDef,
 } from "./catalog.js";
-import { FIELDS, FIELD_COUNT } from "./layout.js";
+import { PARCELS } from "./layout.js";
 import {
   CROP_YTD, CY_COST, CY_REVENUE, CY_STRIDE, CY_UNITS,
-  EQUIP_LEVEL, FIELD_ACRES, FIELD_CROP, FIELD_CUTTINGS, FIELD_DAMAGE,
+  EQUIP_LEVEL, FIELD_ACRES, FIELD_ACTIVE, FIELD_CROP, FIELD_CUTTINGS, FIELD_DAMAGE,
   FIELD_FERTILITY, FIELD_GROW_DAYS, FIELD_MATURE_DAY, FIELD_MOISTURE,
-  FIELD_OWNED, FIELD_PLANT_DAY, FIELD_PLANT_FACTOR, FIELD_PREV_CROP,
+  FIELD_NUM, FIELD_PLANT_DAY, FIELD_PLANT_FACTOR, FIELD_PREV_CROP,
   FIELD_PROGRESS, FIELD_SOIL_QUALITY, FIELD_STAGE, FIELD_STRESS,
   FIELD_FERT_SUM, FIELD_YIELD_EST, FIELD_YIELD_LAST, FIELD_YTD_UNITS,
-  MAX_OPS, MONEY, M_CASH, M_DEBT, OP_ACRES_DONE, OP_CROP, OP_FACTOR_SUM,
+  MAX_FIELDS, MAX_OPS, MONEY, M_CASH, M_DEBT,
+  OP_ACRES_DONE, OP_CROP, OP_FACTOR_SUM, PARCEL_OWNED,
   OP_FIELD, OP_KIND, OP_SEQ, OP_STATUS, PRICE, STORED, WEATHER,
   WEATHER_HIGH, WEATHER_LOW, WEATHER_RAIN, WORKERS,
   STAGE_GERMINATING, STAGE_GROWING, STAGE_MATURE, STAGE_PLANTED, STAGE_UNPLANTED,
@@ -59,6 +60,11 @@ export interface YearSummary {
 // ------------------------------------------------------------- salts
 
 const SALT_PRICE = 301;
+
+/** Display name for a field, from its stored creation number. */
+export function fieldLabel(num: number): string {
+  return `Field ${num}`;
+}
 
 // ------------------------------------------------------------- pure rules
 // Exported so tests can pin the yield model down without running a season.
@@ -166,9 +172,10 @@ export class WeatherSystem implements System {
 export class SoilSystem implements System {
   readonly id = "farm.soil";
   readonly everyNTicks = 1;
-  readonly reads: readonly BufferId[] = [WEATHER, FIELD_CROP, FIELD_STAGE, FIELD_MOISTURE, FIELD_FERTILITY];
+  readonly reads: readonly BufferId[] = [WEATHER, FIELD_ACTIVE, FIELD_CROP, FIELD_STAGE, FIELD_MOISTURE, FIELD_FERTILITY];
   readonly writes: readonly BufferId[] = [FIELD_MOISTURE, FIELD_FERTILITY];
   #weather!: Float32Array;
+  #active!: Uint8Array;
   #crop!: Uint8Array;
   #stage!: Uint8Array;
   #moisture!: Float32Array;
@@ -176,6 +183,7 @@ export class SoilSystem implements System {
 
   init(ctx: SystemContext): void {
     this.#weather = ctx.buffer<Float32Array>(WEATHER);
+    this.#active = ctx.buffer<Uint8Array>(FIELD_ACTIVE);
     this.#crop = ctx.buffer<Uint8Array>(FIELD_CROP);
     this.#stage = ctx.buffer<Uint8Array>(FIELD_STAGE);
     this.#moisture = ctx.buffer<Float32Array>(FIELD_MOISTURE);
@@ -185,7 +193,10 @@ export class SoilSystem implements System {
   update(): void {
     const rain = this.#weather[WEATHER_RAIN]!;
     const avg = (this.#weather[WEATHER_HIGH]! + this.#weather[WEATHER_LOW]!) / 2;
-    for (let f = 0; f < FIELD_COUNT; f += 1) {
+    for (let f = 0; f < MAX_FIELDS; f += 1) {
+      if (this.#active[f] !== 1) {
+        continue;
+      }
       const cropCode = this.#crop[f]!;
       const growingCover = cropCode !== 0 && this.#stage[f]! >= STAGE_GROWING;
       const et = (0.004 + Math.max(0, avg - 40) * 0.00045) * (growingCover ? 1.35 : 1);
@@ -210,7 +221,7 @@ export class SoilSystem implements System {
 const OPS_READS_WRITES: readonly BufferId[] = [
   WEATHER, EQUIP_LEVEL, WORKERS, PRICE,
   OP_KIND, OP_FIELD, OP_CROP, OP_STATUS, OP_ACRES_DONE, OP_SEQ, OP_FACTOR_SUM,
-  FIELD_ACRES, FIELD_OWNED, FIELD_CROP, FIELD_PREV_CROP, FIELD_STAGE,
+  FIELD_ACRES, FIELD_ACTIVE, FIELD_NUM, FIELD_CROP, FIELD_PREV_CROP, FIELD_STAGE,
   FIELD_PROGRESS, FIELD_PLANT_DAY, FIELD_MATURE_DAY, FIELD_GROW_DAYS,
   FIELD_PLANT_FACTOR, FIELD_STRESS, FIELD_FERT_SUM, FIELD_DAMAGE, FIELD_CUTTINGS,
   FIELD_SOIL_QUALITY, FIELD_MOISTURE, FIELD_FERTILITY,
@@ -229,7 +240,7 @@ export class OperationsSystem implements System {
     weather: Float32Array; equip: Uint8Array; workers: Uint8Array; price: Float32Array;
     opKind: Uint8Array; opField: Uint8Array; opCrop: Uint8Array; opStatus: Uint8Array;
     opAcres: Float32Array; opSeq: Int32Array; opFactor: Float32Array;
-    acres: Float32Array; owned: Uint8Array; crop: Uint8Array; prevCrop: Uint8Array;
+    acres: Float32Array; active: Uint8Array; num: Uint8Array; crop: Uint8Array; prevCrop: Uint8Array;
     stage: Uint8Array; progress: Float32Array; plantDay: Int32Array; matureDay: Int32Array;
     growDays: Int32Array; plantFactor: Float32Array; stress: Float32Array;
     fertSum: Float32Array; damage: Float32Array; cuttings: Uint8Array; soilQ: Float32Array;
@@ -257,7 +268,8 @@ export class OperationsSystem implements System {
       opSeq: ctx.buffer<Int32Array>(OP_SEQ),
       opFactor: ctx.buffer<Float32Array>(OP_FACTOR_SUM),
       acres: ctx.buffer<Float32Array>(FIELD_ACRES),
-      owned: ctx.buffer<Uint8Array>(FIELD_OWNED),
+      active: ctx.buffer<Uint8Array>(FIELD_ACTIVE),
+      num: ctx.buffer<Uint8Array>(FIELD_NUM),
       crop: ctx.buffer<Uint8Array>(FIELD_CROP),
       prevCrop: ctx.buffer<Uint8Array>(FIELD_PREV_CROP),
       stage: ctx.buffer<Uint8Array>(FIELD_STAGE),
@@ -311,14 +323,18 @@ export class OperationsSystem implements System {
       const opCropCode = b.opCrop[s]!;
 
       // --- standing eligibility; a failed op frees its slot with an event.
+      if (b.active[f] !== 1) {
+        this.#fail(ctx, s, "the field no longer exists");
+        continue;
+      }
       if (kind === OP_PLANT) {
         if (b.crop[f]! !== 0 || b.stage[f]! !== STAGE_UNPLANTED) {
-          this.#fail(ctx, s, `${FIELDS[f]!.name} already has a crop`);
+          this.#fail(ctx, s, `${fieldLabel(b.num[f]!)} already has a crop`);
           continue;
         }
         const crop = cropByCode(opCropCode);
         if (doy > crop.plantWindow[2]) {
-          this.#fail(ctx, s, `${crop.name} planting window closed before ${FIELDS[f]!.name} was planted`);
+          this.#fail(ctx, s, `${crop.name} planting window closed before ${fieldLabel(b.num[f]!)} was planted`);
           continue;
         }
         if (doy < crop.plantWindow[0]) {
@@ -327,7 +343,7 @@ export class OperationsSystem implements System {
       } else if (kind === OP_HARVEST) {
         const cropCode = b.crop[f]!;
         if (cropCode === 0) {
-          this.#fail(ctx, s, `${FIELDS[f]!.name} has nothing to harvest`);
+          this.#fail(ctx, s, `${fieldLabel(b.num[f]!)} has nothing to harvest`);
           continue;
         }
         if (b.stage[f]! !== STAGE_MATURE && b.progress[f]! < 0.85) {
@@ -442,7 +458,7 @@ export class OperationsSystem implements System {
     const b = this.#b;
     const kind = b.opKind[s]!;
     const f = b.opField[s]!;
-    const fieldName = FIELDS[f]!.name;
+    const fieldName = fieldLabel(b.num[f]!);
     const fieldAcres = b.acres[f]!;
 
     if (kind === OP_PLANT) {
@@ -529,7 +545,7 @@ export class OperationsSystem implements System {
     this.#events.emit({
       tick: ctx.tick,
       kind: "harvest",
-      message: `harvested ${FIELDS[f]!.name}: ${Math.round(units)} ${crop.unit} of ${crop.name} (${yieldPerAcre.toFixed(1)}/ac)${saleNote}`,
+      message: `harvested ${fieldLabel(b.num[f]!)}: ${Math.round(units)} ${crop.unit} of ${crop.name} (${yieldPerAcre.toFixed(1)}/ac)${saleNote}`,
       data: { field: f, crop: crop.key, units, yieldPerAcre },
     });
 
@@ -569,7 +585,7 @@ export class OperationsSystem implements System {
 // ------------------------------------------------------------- growth
 
 const GROWTH_READS: readonly BufferId[] = [
-  WEATHER, FIELD_CROP, FIELD_STAGE, FIELD_PROGRESS, FIELD_MOISTURE,
+  WEATHER, FIELD_ACTIVE, FIELD_NUM, FIELD_CROP, FIELD_STAGE, FIELD_PROGRESS, FIELD_MOISTURE,
   FIELD_FERTILITY, FIELD_STRESS, FIELD_FERT_SUM, FIELD_DAMAGE, FIELD_GROW_DAYS,
   FIELD_MATURE_DAY, FIELD_PLANT_FACTOR, FIELD_SOIL_QUALITY, FIELD_YIELD_EST,
   FIELD_PREV_CROP, FIELD_PLANT_DAY, FIELD_CUTTINGS,
@@ -582,7 +598,8 @@ export class GrowthSystem implements System {
   readonly writes = GROWTH_READS;
   readonly #events: EventQueue<FarmEvent>;
   #b!: {
-    weather: Float32Array; crop: Uint8Array; stage: Uint8Array; progress: Float32Array;
+    weather: Float32Array; active: Uint8Array; num: Uint8Array;
+    crop: Uint8Array; stage: Uint8Array; progress: Float32Array;
     moisture: Float32Array; fertility: Float32Array; stress: Float32Array;
     fertSum: Float32Array; damage: Float32Array; growDays: Int32Array; matureDay: Int32Array;
     plantFactor: Float32Array; soilQ: Float32Array; yieldEst: Float32Array;
@@ -596,6 +613,8 @@ export class GrowthSystem implements System {
   init(ctx: SystemContext): void {
     this.#b = {
       weather: ctx.buffer<Float32Array>(WEATHER),
+      active: ctx.buffer<Uint8Array>(FIELD_ACTIVE),
+      num: ctx.buffer<Uint8Array>(FIELD_NUM),
       crop: ctx.buffer<Uint8Array>(FIELD_CROP),
       stage: ctx.buffer<Uint8Array>(FIELD_STAGE),
       progress: ctx.buffer<Float32Array>(FIELD_PROGRESS),
@@ -623,7 +642,10 @@ export class GrowthSystem implements System {
     const low = b.weather[WEATHER_LOW]!;
     const avg = (high + low) / 2;
 
-    for (let f = 0; f < FIELD_COUNT; f += 1) {
+    for (let f = 0; f < MAX_FIELDS; f += 1) {
+      if (b.active[f] !== 1) {
+        continue;
+      }
       const cropCode = b.crop[f]!;
       if (cropCode === 0) {
         b.yieldEst[f] = 0;
@@ -636,7 +658,7 @@ export class GrowthSystem implements System {
         this.#events.emit({
           tick: ctx.tick,
           kind: "loss",
-          message: `winter killed the unharvested ${crop.name} on ${FIELDS[f]!.name}`,
+          message: `winter killed the unharvested ${crop.name} on ${fieldLabel(b.num[f]!)}`,
           data: { field: f, crop: crop.key },
         });
         this.#clearField(f, cropCode);
@@ -665,7 +687,7 @@ export class GrowthSystem implements System {
         this.#events.emit({
           tick: ctx.tick,
           kind: "op",
-          message: `${crop.name} on ${FIELDS[f]!.name} is mature`,
+          message: `${crop.name} on ${fieldLabel(b.num[f]!)} is mature`,
           data: { field: f, crop: crop.key },
         });
       } else if (p >= 0.2 && b.stage[f]! < STAGE_GROWING) {
@@ -687,7 +709,7 @@ export class GrowthSystem implements System {
         this.#events.emit({
           tick: ctx.tick,
           kind: "frost",
-          message: `${hard ? "hard frost" : "frost"} (${low.toFixed(0)}°F) hit the ${crop.name} on ${FIELDS[f]!.name}`,
+          message: `${hard ? "hard frost" : "frost"} (${low.toFixed(0)}°F) hit the ${crop.name} on ${fieldLabel(b.num[f]!)}`,
           data: { field: f, crop: crop.key, low },
         });
       }
@@ -790,21 +812,27 @@ export class FinanceSystem implements System {
 // ------------------------------------------------------------- year end
 
 const YEAR_END_READS: readonly BufferId[] = [
-  MONEY, YTD, CROP_YTD, FIELD_YTD_UNITS, FIELD_OWNED, FIELD_ACRES,
-  EQUIP_LEVEL, STORED, PRICE,
+  MONEY, YTD, CROP_YTD, FIELD_YTD_UNITS, FIELD_ACTIVE, FIELD_NUM,
+  PARCEL_OWNED, EQUIP_LEVEL, STORED, PRICE,
 ];
+
+/** Value of the owned parcels, at the flat land price. */
+export function ownedLandValue(parcelOwned: ArrayLike<number>, landPricePerAcre: number): number {
+  let value = 0;
+  for (const parcel of PARCELS) {
+    if (parcelOwned[parcel.id] === 1) {
+      value += parcel.acres * landPricePerAcre;
+    }
+  }
+  return value;
+}
 
 /** Net worth from the state buffers: cash + land + equipment + stored crops − debt. */
 export function computeNetWorth(views: {
-  money: Float64Array; owned: Uint8Array; acres: Float32Array;
+  money: Float64Array; parcelOwned: Uint8Array;
   equip: Uint8Array; stored: Float64Array; price: Float32Array;
 }, landPricePerAcre: number): number {
-  let landValue = 0;
-  for (let f = 0; f < FIELD_COUNT; f += 1) {
-    if (views.owned[f] === 1) {
-      landValue += views.acres[f]! * landPricePerAcre;
-    }
-  }
+  const landValue = ownedLandValue(views.parcelOwned, landPricePerAcre);
   let equipValue = 0;
   for (let e = 0; e < EQUIP_COUNT; e += 1) {
     equipValue += EQUIPMENT[e]!.value[views.equip[e]! - 1]!;
@@ -825,8 +853,9 @@ export class YearEndSystem implements System {
   readonly #landPricePerAcre: number;
   #b!: {
     money: Float64Array; ytd: Float64Array; cropYtd: Float64Array;
-    fieldYtd: Float64Array; owned: Uint8Array; acres: Float32Array;
-    equip: Uint8Array; stored: Float64Array; price: Float32Array;
+    fieldYtd: Float64Array; active: Uint8Array; num: Uint8Array;
+    parcelOwned: Uint8Array; equip: Uint8Array; stored: Float64Array;
+    price: Float32Array;
   };
 
   constructor(events: EventQueue<FarmEvent>, landPricePerAcre: number) {
@@ -840,8 +869,9 @@ export class YearEndSystem implements System {
       ytd: ctx.buffer<Float64Array>(YTD),
       cropYtd: ctx.buffer<Float64Array>(CROP_YTD),
       fieldYtd: ctx.buffer<Float64Array>(FIELD_YTD_UNITS),
-      owned: ctx.buffer<Uint8Array>(FIELD_OWNED),
-      acres: ctx.buffer<Float32Array>(FIELD_ACRES),
+      active: ctx.buffer<Uint8Array>(FIELD_ACTIVE),
+      num: ctx.buffer<Uint8Array>(FIELD_NUM),
+      parcelOwned: ctx.buffer<Uint8Array>(PARCEL_OWNED),
       equip: ctx.buffer<Uint8Array>(EQUIP_LEVEL),
       stored: ctx.buffer<Float64Array>(STORED),
       price: ctx.buffer<Float32Array>(PRICE),
@@ -857,9 +887,9 @@ export class YearEndSystem implements System {
 
     // Annual land costs on owned acres.
     let ownedAcres = 0;
-    for (let f = 0; f < FIELD_COUNT; f += 1) {
-      if (b.owned[f] === 1) {
-        ownedAcres += b.acres[f]!;
+    for (const parcel of PARCELS) {
+      if (b.parcelOwned[parcel.id] === 1) {
+        ownedAcres += parcel.acres;
       }
     }
     const landCost = ownedAcres * LAND_COST_PER_ACRE;
@@ -897,7 +927,10 @@ export class YearEndSystem implements System {
           profit: b.cropYtd[base + CY_REVENUE]! - b.cropYtd[base + CY_COST]!,
         };
       }).filter((row) => row.units > 0 || row.revenue > 0 || row.cost > 0),
-      byField: FIELDS.map((f) => ({ field: f.name, units: b.fieldYtd[f.id]! })).filter((row) => row.units > 0),
+      byField: Array.from({ length: MAX_FIELDS }, (_, f) => ({
+        field: fieldLabel(b.num[f]!),
+        units: b.fieldYtd[f]!,
+      })).filter((row) => row.units > 0),
     };
     this.#events.emit({
       tick: ctx.tick,

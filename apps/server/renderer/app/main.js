@@ -40,10 +40,12 @@ ui.fieldWindow = new FieldWindow(document.getElementById('field-window'), {
   onCommand: (command) => appRef.current.sendCommand(command),
   onStatus: (text, kind) => ui.statusPanel.setCommandStatus(text, kind),
   onClose: () => appRef.current.clearSelection(),
+  onPlaceField: () => appRef.current.togglePlaceMode(true),
 });
 ui.farmPanel = new FarmPanel(document.getElementById('farm-panel'), {
   onCommand: (command) => appRef.current.sendCommand(command),
   onStatus: (text, kind) => ui.statusPanel.setCommandStatus(text, kind),
+  onPlaceField: () => appRef.current.togglePlaceMode(true),
 });
 ui.controls = new Controls(document.getElementById('controls-panel'), {
   onCommand: (command) => appRef.current.sendCommand(command),

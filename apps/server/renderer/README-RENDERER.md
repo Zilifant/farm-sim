@@ -21,16 +21,22 @@ pnpm build && pnpm serve     # then open http://localhost:3000
 
 - **Map**: fields as blocks of crop glyphs — shape tracks growth (`.` planted,
   `,` germinating, lowercase growing, UPPERCASE mature) and color tracks the
-  crop; `~` fallow field, `.` grass lanes, `#` farmstead, dim `$` parcels for
-  sale. Drag or arrows/WASD to pan (shift = fast), wheel or `+`/`-` to zoom,
-  `C` recenters. Hovering a cell washes its whole field, so the management
-  unit reads at once.
+  crop; `~` fallow field, `.` your open ground, dim `$` land for sale, `=`
+  the road and driveway, `#` the farmstead. Drag or arrows/WASD to pan
+  (shift = fast), wheel or `+`/`-` to zoom, `C` recenters. Hovering a cell
+  washes its whole field, so the management unit reads at once.
+- **Field placement**: press `F` (or the Farm Office button, or a parcel
+  window's button) and drag a rectangle on your open ground — previewed
+  green where placeable, red where blocked — to create a field of any
+  width and height. `Esc` cancels. Fields can be plowed under again from
+  their window.
 - **Field window**: click a field and a floating window opens beside the
   click — the field's crop, stage, progress, expected yield, and condition
   gauges, plus every action that applies to it: plant (a crop picker with
-  live prices), fertilize, irrigate, harvest, cancel its queued work, or
-  buy the parcel if it is for sale. Drag it by its header; `Esc` or ×
-  closes. The map is the way in to all per-field play.
+  live prices), fertilize, irrigate, harvest, cancel its queued work, plow
+  it under. Clicking open land shows the *parcel* instead: buy it, or jump
+  into placement mode on ground you own. Drag the window by its header;
+  `Esc` or × closes. The map is the way in to all per-field play.
 - **Controls**: pause/resume (`Space`), speed ladder 0.25×–32× (`[` / `]`),
   step +1/+10/+100/N days (stepping pauses first), and New Farm from seed.
 - **Farm Office**: the farm-wide surface — the work queue's overview with
@@ -93,7 +99,8 @@ on every frame, so a reconnect resynchronizes by construction. A change of
 `simulation.pause/resume/setSpeed/step/restart`, `cell.inspect`, and
 `farm.command` — an envelope whose inner command (`farm.op.schedule`,
 `farm.op.cancel`, `farm.sell`, `farm.borrow`, `farm.repay`,
-`farm.field.buy`, `farm.equip.buy`, `farm.labor.set`) the sim validates.
+`farm.field.create`, `farm.field.remove`, `farm.parcel.buy`,
+`farm.equip.buy`, `farm.labor.set`) the sim validates.
 
 The renderer imports **nothing** from `@sim/runtime` or `@sim/farm` — it
 speaks the protocol purely as message shapes over the transport

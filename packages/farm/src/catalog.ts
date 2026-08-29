@@ -238,6 +238,8 @@ export const MAX_WORKERS = 8;
 
 /** $/acre to buy neighboring parcels; also the land value for net worth. */
 export const LAND_PRICE_PER_ACRE = 5500;
+/** $/acre to clear and work new ground into a field. */
+export const CLEAR_COST_PER_ACRE = 30;
 /** $/acre/year property + upkeep cost, charged at year end on owned acres. */
 export const LAND_COST_PER_ACRE = 18;
 

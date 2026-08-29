@@ -834,3 +834,9 @@ input:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+
+/* Field-placement mode: the map is a drawing surface. */
+#farm-canvas.placing {
+  cursor: crosshair;
+}

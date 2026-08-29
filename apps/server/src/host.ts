@@ -6,11 +6,15 @@
 
 import { FixedStepClock, decodeSnapshot, encodeSnapshot } from "@sim/runtime";
 import {
-  FARMSTEAD_RECT, FARM_COMMAND_KINDS, NO_FIELD, WORLD_HEIGHT, WORLD_WIDTH,
-  buildCellCodes, buildFieldIdMap, createFarmSim,
+  FARMSTEAD_RECT, FARM_COMMAND_KINDS, NO_PARCEL, ROAD_RECT,
+  DRIVEWAY_RECT, WORLD_HEIGHT, WORLD_WIDTH,
+  buildCellCodes, buildFieldIdMap, buildParcelIdMap, createFarmSim,
+  rectContains, soilQualityAt,
   type CalendarDate, type DailyWeather, type FarmCommand, type FarmConfig,
   type FarmEvent, type FarmSim, type FieldView, type ForecastDay,
+  type ParcelView,
 } from "@sim/farm";
+import { seedToU32 } from "@sim/runtime";
 
 export interface SimHostOptions extends Partial<FarmConfig> {
   /** Sim-time per tick; wall pace = fixedDtMs / speed. Default 1 day/second. */
@@ -47,7 +51,7 @@ export class SimHost {
   #restarts = 0;
   #eventRing: FarmEventRecord[] = [];
   #nextSeq = 1;
-  readonly #fieldIds: Uint8Array = buildFieldIdMap();
+  readonly #parcelIds: Uint8Array = buildParcelIdMap();
 
   private constructor(sim: FarmSim, config: Partial<FarmConfig>, fixedDtMs: number) {
     this.#sim = sim;
@@ -173,32 +177,49 @@ export class SimHost {
   }
 
   /** What one map cell holds — the renderer's inspection query. */
-  cellInspect(x: number, y: number): { x: number; y: number; kind: string; field: FieldView | null } {
+  cellInspect(x: number, y: number): {
+    x: number; y: number; kind: string;
+    field: FieldView | null; parcel: ParcelView | null; soilQuality: number;
+  } {
     if (!Number.isInteger(x) || x < 0 || x >= WORLD_WIDTH || !Number.isInteger(y) || y < 0 || y >= WORLD_HEIGHT) {
       throw new Error(`cell must be within the ${WORLD_WIDTH}x${WORLD_HEIGHT} map`);
     }
-    const fieldId = this.#fieldIds[y * WORLD_WIDTH + x]!;
-    if (fieldId === NO_FIELD) {
-      // The farmstead block is drawn distinctly but carries no field state.
-      const kind = isFarmstead(x, y) ? "farmstead" : "grass";
-      return { x, y, kind, field: null };
-    }
-    return { x, y, kind: "field", field: this.#sim.fields()[fieldId]! };
+    const soilQuality = soilQualityAt(seedToU32(String(this.#sim.config.seed)), x, y);
+    const field = this.#sim.fields().find((f) => rectContains(f, x, y)) ?? null;
+    const parcelId = this.#parcelIds[y * WORLD_WIDTH + x]!;
+    const parcel = parcelId === NO_PARCEL ? null : this.#sim.parcels()[parcelId]!;
+    const kind =
+      field !== null ? "field"
+      : rectContains(FARMSTEAD_RECT, x, y) ? "farmstead"
+      : rectContains(DRIVEWAY_RECT, x, y) ? "driveway"
+      : rectContains(ROAD_RECT, x, y) ? "road"
+      : "grass";
+    return { x, y, kind, field, parcel, soilQuality };
   }
 
   /** The map as appearance codes, base64 — the renderer's per-frame payload. */
   cellsBase64(): string {
-    const fields = this.#sim.fields();
-    const cells = buildCellCodes((id) => {
-      const f = fields[id]!;
-      return { owned: f.owned, crop: f.cropCode, stage: f.stageCode };
-    });
+    const parcelOwned = new Uint8Array(this.#sim.parcels().length);
+    for (const p of this.#sim.parcels()) {
+      parcelOwned[p.id] = p.owned ? 1 : 0;
+    }
+    const cells = buildCellCodes(
+      parcelOwned,
+      this.#sim.fields().map((f) => ({ rect: f, crop: f.cropCode, stage: f.stageCode })),
+    );
     return Buffer.from(cells).toString("base64");
   }
 
-  /** Static field-id map (255 = no field), base64; constant per simulation. */
+  /** Per-frame field-id map (255 = no field) — fields move as the player
+   * creates and removes them. */
   fieldIdsBase64(): string {
-    return Buffer.from(this.#fieldIds).toString("base64");
+    const map = buildFieldIdMap(this.#sim.fields().map((f) => ({ id: f.id, rect: f })));
+    return Buffer.from(map).toString("base64");
+  }
+
+  /** Static parcel-id map (255 = the road), base64. */
+  parcelIdsBase64(): string {
+    return Buffer.from(this.#parcelIds).toString("base64");
   }
 
   date(): CalendarDate {
@@ -227,7 +248,3 @@ export class SimHost {
   }
 }
 
-function isFarmstead(x: number, y: number): boolean {
-  const r = FARMSTEAD_RECT;
-  return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
-}

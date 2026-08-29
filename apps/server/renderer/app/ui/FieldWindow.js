@@ -1,10 +1,11 @@
 /**
  * The floating field window — the game's primary interaction surface.
- * Clicking a field on the map opens this card next to it: the field's
- * condition, what is growing, and every action that applies *to this field*
- * (plant a crop, fertilize, irrigate, harvest, cancel its queued work, or
- * buy the parcel). Farm-wide concerns (selling, the bank, machinery) stay
- * in the sidebar.
+ * Clicking the map opens this card next to the click. On a field it shows
+ * the field's condition, what is growing, and every action that applies to
+ * it (plant a crop, fertilize, irrigate, harvest, cancel its queued work,
+ * plow it under). On open land it shows the parcel — buy it, or start
+ * placing a field on ground already owned. Farm-wide concerns (selling,
+ * the bank, machinery) stay in the sidebar.
  *
  * Same contract as every panel: the window portrays authoritative host
  * output and sends protocol commands — it never mutates state itself. It
@@ -38,15 +39,15 @@ export function clampToBounds(anchor, size, bounds, margin = 8) {
  * Which action groups a field offers, from its authoritative state. Pure —
  * exported for the unit tests.
  * @param {object | null} field a store field row
- * @returns {Array<'buy' | 'plant' | 'fertilize' | 'irrigate' | 'harvest'>}
+ * @returns {Array<'plant' | 'fertilize' | 'irrigate' | 'harvest' | 'remove'>}
  */
 export function fieldActions(field) {
   if (!field) return [];
-  if (!field.owned) return ['buy'];
   const actions = [];
   if (!field.crop) actions.push('plant');
   actions.push('fertilize', 'irrigate');
   if (field.crop) actions.push('harvest');
+  if (!field.crop) actions.push('remove');
   return actions;
 }
 
@@ -61,8 +62,12 @@ export class FieldWindow {
   #callbacks;
   /** @type {import('../state/RendererStore.js').RendererStore | null} */
   #store = null;
+  /** @type {'field' | 'parcel'} what the window is showing */
+  #mode = 'field';
   /** @type {number | null} the field this window is showing */
   #fieldId = null;
+  /** @type {number | null} the parcel this window is showing */
+  #parcelId = null;
   /** Set while the user drags the window by its header. */
   #drag = null;
 
@@ -73,6 +78,7 @@ export class FieldWindow {
    * @param {(command: object) => Promise<object>} callbacks.onCommand
    * @param {(text: string, kind: 'ok' | 'warn' | 'bad') => void} callbacks.onStatus
    * @param {() => void} callbacks.onClose selection cleanup lives with the app
+   * @param {() => void} callbacks.onPlaceField enter field-placement mode
    */
   constructor(container, callbacks) {
     this.#el = container;
@@ -129,7 +135,25 @@ export class FieldWindow {
    * @param {{x: number, y: number}} anchor viewport-relative pixels (the click)
    */
   openFor(fieldId, anchor) {
+    this.#mode = 'field';
     this.#fieldId = fieldId;
+    this.#parcelId = null;
+    this.#open(anchor);
+  }
+
+  /**
+   * Open the window for a land parcel (open ground, owned or for sale).
+   * @param {number} parcelId
+   * @param {{x: number, y: number}} anchor viewport-relative pixels
+   */
+  openForParcel(parcelId, anchor) {
+    this.#mode = 'parcel';
+    this.#parcelId = parcelId;
+    this.#fieldId = null;
+    this.#open(anchor);
+  }
+
+  #open(anchor) {
     this.#el.hidden = false;
     if (this.#store) this.render(this.#store);
     // Place after rendering so the measured size is the real one; offset a
@@ -146,11 +170,16 @@ export class FieldWindow {
   close() {
     this.#el.hidden = true;
     this.#fieldId = null;
+    this.#parcelId = null;
   }
 
   async #runAction(action, arg) {
+    if (action === 'place-field') {
+      this.#callbacks.onPlaceField();
+      this.#callbacks.onClose();
+      return;
+    }
     const field = this.#fieldId;
-    if (field === null) return;
     let command = null;
     switch (action) {
       case 'plant':
@@ -165,8 +194,11 @@ export class FieldWindow {
       case 'harvest':
         command = { kind: 'farm.op.schedule', op: OP_HARVEST, field, crop: 0 };
         break;
-      case 'buy':
-        command = { kind: 'farm.field.buy', field };
+      case 'remove':
+        command = { kind: 'farm.field.remove', field };
+        break;
+      case 'buy-parcel':
+        command = { kind: 'farm.parcel.buy', parcel: Number(arg) };
         break;
       case 'cancel':
         command = { kind: 'farm.op.cancel', opSeq: Number(arg) };
@@ -174,9 +206,15 @@ export class FieldWindow {
       default:
         return;
     }
+    if (command.kind.startsWith('farm.op') || command.kind === 'farm.field.remove') {
+      if (field === null && command.kind !== 'farm.op.cancel') return;
+    }
     const result = await this.#callbacks.onCommand({ type: 'farm.command', command });
     if (result?.ok) {
       this.#callbacks.onStatus(`${command.kind} ok`, 'ok');
+      if (command.kind === 'farm.field.remove') {
+        this.#callbacks.onClose();
+      }
     } else {
       this.#callbacks.onStatus(`${command.kind} failed: ${result?.error?.message ?? 'unknown error'}`, 'bad');
     }
@@ -188,20 +226,21 @@ export class FieldWindow {
    */
   render(store) {
     this.#store = store;
-    if (this.#el.hidden || this.#fieldId === null) return;
-    const field = store.fields[this.#fieldId];
+    if (this.#el.hidden) return;
+    if (this.#mode === 'parcel') {
+      this.#renderParcel(store);
+      return;
+    }
+    if (this.#fieldId === null) return;
+    const field = store.fieldById(this.#fieldId);
     if (!field) {
-      // A restart replaced the world under the window.
+      // The field was removed, or a restart replaced the world.
       this.#callbacks.onClose();
       return;
     }
 
     const rows = [];
-    if (!field.owned) {
-      rows.push(`<div class="field"><span>status</span><span class="warn">for sale</span></div>`);
-      rows.push(`<div class="field"><span>price</span><span>${formatMoney(field.price)}</span></div>`);
-      rows.push(`<div class="field"><span>soil quality</span><span>${gauge(Math.min(1, field.soilQuality))}</span></div>`);
-    } else {
+    {
       if (field.crop) {
         const crop = Object.values(CROP_APPEARANCE).find((c) => c.key === field.crop);
         const glyph = crop
@@ -234,9 +273,6 @@ export class FieldWindow {
 
     const actions = fieldActions(field);
     const buttons = [];
-    if (actions.includes('buy')) {
-      buttons.push(`<button type="button" data-action="buy" class="field-window-wide">Buy for ${formatMoney(field.price)}</button>`);
-    }
     if (actions.includes('plant')) {
       const marketPrice = (key) => {
         const market = store.markets.find((m) => m.key === key);
@@ -256,6 +292,7 @@ export class FieldWindow {
     if (actions.includes('fertilize')) simple.push(`<button type="button" data-action="fertilize">Fertilize</button>`);
     if (actions.includes('irrigate')) simple.push(`<button type="button" data-action="irrigate">Irrigate</button>`);
     if (actions.includes('harvest')) simple.push(`<button type="button" data-action="harvest">Harvest</button>`);
+    if (actions.includes('remove')) simple.push(`<button type="button" data-action="remove" title="Plow the field back to open ground">Remove</button>`);
     if (simple.length > 0) {
       buttons.push(`<div class="control-row">${simple.join('')}</div>`);
     }
@@ -274,6 +311,36 @@ export class FieldWindow {
         ${rows.join('')}
         ${fieldOps.length > 0 ? `<ul class="farm-list">${opsRows}</ul>` : ''}
         ${buttons.join('')}
+      </div>`;
+  }
+
+  /** The parcel view: open ground — buy it, or start placing a field on it. */
+  #renderParcel(store) {
+    const parcel = store.parcels[this.#parcelId];
+    if (!parcel) {
+      this.#callbacks.onClose();
+      return;
+    }
+    const rows = [
+      `<div class="field"><span>acres</span><span>${Math.round(parcel.acres)}</span></div>`,
+    ];
+    let action;
+    if (parcel.owned) {
+      rows.push(`<div class="field"><span>status</span><span class="ok">your ground${parcel.isHomestead ? ' (homestead)' : ''}</span></div>`);
+      action = `<button type="button" data-action="place-field" class="field-window-wide">＋ Place a field here (F)</button>`;
+    } else {
+      rows.push(`<div class="field"><span>status</span><span class="warn">for sale</span></div>`);
+      rows.push(`<div class="field"><span>price</span><span>${formatMoney(parcel.price)}</span></div>`);
+      action = `<button type="button" data-action="buy-parcel" data-arg="${parcel.id}" class="field-window-wide">Buy for ${formatMoney(parcel.price)}</button>`;
+    }
+    this.#el.innerHTML = `
+      <div class="field-window-header">
+        <span>Parcel ${parcel.name}</span>
+        <button type="button" data-close title="Close (Esc)">×</button>
+      </div>
+      <div class="field-window-body">
+        ${rows.join('')}
+        ${action}
       </div>`;
   }
 }

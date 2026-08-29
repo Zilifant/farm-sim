@@ -24,6 +24,7 @@ export class FarmPanel {
    * @param {object} callbacks
    * @param {(command: object) => Promise<object>} callbacks.onCommand
    * @param {(text: string, kind: 'ok' | 'warn' | 'bad') => void} callbacks.onStatus
+   * @param {() => void} callbacks.onPlaceField enter field-placement mode
    */
   constructor(container, callbacks) {
     this.#onCommand = callbacks;
@@ -32,8 +33,11 @@ export class FarmPanel {
       <details class="inspector-section" open>
         <summary><span class="section-title">Work queue</span> <span class="section-badge" id="farm-queue-badge"></span></summary>
         <div class="section-body">
+          <div class="control-row">
+            <button type="button" id="farm-place-field">＋ Place a field (F)</button>
+          </div>
           <ul id="farm-ops-list" class="farm-list"></ul>
-          <p class="hint">click a field on the map to plant, fertilize, irrigate, or harvest it; ops wait for their window, weather, and machine capacity, in queue order</p>
+          <p class="hint">click a field on the map to work it; ops wait for their window, weather, and machine capacity, in queue order</p>
         </div>
       </details>
       <details class="inspector-section" open>
@@ -69,7 +73,7 @@ export class FarmPanel {
         <summary><span class="section-title">Machinery</span> <span class="section-badge">upgrades</span></summary>
         <div class="section-body">
           <ul id="farm-expand-list" class="farm-list"></ul>
-          <p class="hint">land is bought on the map — click a parcel marked for sale</p>
+          <p class="hint">land is bought on the map — click ground marked $ for sale</p>
         </div>
       </details>`;
 
@@ -92,6 +96,7 @@ export class FarmPanel {
       expandList: container.querySelector('#farm-expand-list'),
     };
 
+    container.querySelector('#farm-place-field').addEventListener('click', () => callbacks.onPlaceField());
     this.#els.opsList.addEventListener('click', (event) => {
       const seq = event.target instanceof Element ? event.target.getAttribute('data-cancel') : null;
       if (seq !== null) this.#send({ kind: 'farm.op.cancel', opSeq: Number(seq) });

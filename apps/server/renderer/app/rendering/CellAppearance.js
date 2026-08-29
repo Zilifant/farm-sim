@@ -41,10 +41,12 @@ export const DRACULA_COLORS = Object.freeze({
 });
 
 /** Terrain codes, matching @sim/farm's layout constants. */
-export const CELL_GRASS = 0;
+export const CELL_UNOWNED = 0;
 export const CELL_FARMSTEAD = 1;
-export const CELL_FOR_SALE = 2;
+export const CELL_ROAD = 2;
 export const CELL_FALLOW = 3;
+export const CELL_OWNED_GRASS = 4;
+export const CELL_DRIVEWAY = 5;
 /** Crop cells: code = CROP_CODE_BASE + (crop - 1) * BUCKETS_PER_CROP + bucket. */
 export const CROP_CODE_BASE = 8;
 export const BUCKETS_PER_CROP = 4;
@@ -69,10 +71,12 @@ export const CROP_APPEARANCE = Object.freeze({
 });
 
 export const TERRAIN_APPEARANCE = Object.freeze({
-  [CELL_GRASS]: Object.freeze({ glyph: '.', colorToken: 'comment', label: 'grass / lane' }),
+  [CELL_UNOWNED]: Object.freeze({ glyph: '$', colorToken: 'current-line', label: 'land for sale' }),
   [CELL_FARMSTEAD]: Object.freeze({ glyph: '#', colorToken: 'orange', label: 'farmstead' }),
-  [CELL_FOR_SALE]: Object.freeze({ glyph: '$', colorToken: 'current-line', label: 'parcel for sale' }),
+  [CELL_ROAD]: Object.freeze({ glyph: '=', colorToken: 'current-line', label: 'road' }),
   [CELL_FALLOW]: Object.freeze({ glyph: '~', colorToken: 'comment', label: 'fallow field' }),
+  [CELL_OWNED_GRASS]: Object.freeze({ glyph: '.', colorToken: 'comment', label: 'your ground (place fields here)' }),
+  [CELL_DRIVEWAY]: Object.freeze({ glyph: '=', colorToken: 'orange', label: 'driveway' }),
 });
 
 export const UNKNOWN_APPEARANCE = Object.freeze({ glyph: '?', colorToken: 'foreground', label: 'unknown' });

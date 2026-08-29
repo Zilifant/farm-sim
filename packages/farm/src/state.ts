@@ -4,12 +4,23 @@
 
 import { bufferId, type BufferId, type BufferRegistry } from "@sim/runtime";
 import { CROP_COUNT, EQUIP_COUNT } from "./catalog.js";
-import { FIELD_COUNT } from "./layout.js";
+import { PARCEL_COUNT } from "./layout.js";
 
 // ------------------------------------------------------------ fields
+//
+// Fields are dynamic: the player creates them on owned ground and can plow
+// them under again. A field lives in one of MAX_FIELDS slots; FIELD_ACTIVE
+// marks live slots and the geometry buffers carry each field's rectangle.
 
+export const MAX_FIELDS = 24;
+
+export const FIELD_ACTIVE: BufferId = bufferId("farm.field.active"); // u8[NF]
+export const FIELD_NUM: BufferId = bufferId("farm.field.num"); // u8[NF], display number
+export const FIELD_X: BufferId = bufferId("farm.field.x"); // u8[NF]
+export const FIELD_Y: BufferId = bufferId("farm.field.y"); // u8[NF]
+export const FIELD_W: BufferId = bufferId("farm.field.w"); // u8[NF]
+export const FIELD_H: BufferId = bufferId("farm.field.h"); // u8[NF]
 export const FIELD_ACRES: BufferId = bufferId("farm.field.acres"); // f32[NF]
-export const FIELD_OWNED: BufferId = bufferId("farm.field.owned"); // u8[NF]
 export const FIELD_SOIL_QUALITY: BufferId = bufferId("farm.field.soilQuality"); // f32[NF]
 export const FIELD_MOISTURE: BufferId = bufferId("farm.field.moisture"); // f32[NF]
 export const FIELD_FERTILITY: BufferId = bufferId("farm.field.fertility"); // f32[NF]
@@ -53,6 +64,10 @@ export const OP_ACRES_DONE: BufferId = bufferId("farm.op.acresDone"); // f32[MAX
 export const OP_SEQ: BufferId = bufferId("farm.op.seq"); // i32[MAX_OPS], creation order
 export const OP_FACTOR_SUM: BufferId = bufferId("farm.op.factorSum"); // f32[MAX_OPS], acre-weighted
 
+// ------------------------------------------------------------ land
+
+export const PARCEL_OWNED: BufferId = bufferId("farm.parcel.owned"); // u8[PARCEL_COUNT]
+
 // ------------------------------------------------------------ capacity
 
 export const EQUIP_LEVEL: BufferId = bufferId("farm.equip.level"); // u8[EQUIP_COUNT], 1-based
@@ -79,7 +94,9 @@ export const M_CASH = 0;
 export const M_DEBT = 1;
 /** Monotonic op-sequence counter (stored as money so it snapshots; integer-valued). */
 export const M_NEXT_OP_SEQ = 2;
-export const MONEY_SLOTS = 3;
+/** Monotonic field display-number counter, same trick. */
+export const M_NEXT_FIELD_NUM = 3;
+export const MONEY_SLOTS = 4;
 
 /** Year-to-date totals (f64), reset at each year end. */
 export const YTD: BufferId = bufferId("farm.ytd"); // f64[YTD_SLOTS]
@@ -141,19 +158,26 @@ export function resolveConfig(partial: Partial<FarmConfig>): FarmConfig {
 /** Every state buffer, in a pinned order — the hash and snapshot both walk
  * this list, so the order is part of the schema. */
 export const STATE_BUFFERS: readonly BufferId[] = Object.freeze([
-  FIELD_ACRES, FIELD_OWNED, FIELD_SOIL_QUALITY, FIELD_MOISTURE, FIELD_FERTILITY,
+  FIELD_ACTIVE, FIELD_NUM, FIELD_X, FIELD_Y, FIELD_W, FIELD_H,
+  FIELD_ACRES, FIELD_SOIL_QUALITY, FIELD_MOISTURE, FIELD_FERTILITY,
   FIELD_CROP, FIELD_PREV_CROP, FIELD_STAGE, FIELD_PROGRESS, FIELD_PLANT_DAY,
   FIELD_MATURE_DAY, FIELD_GROW_DAYS, FIELD_PLANT_FACTOR, FIELD_STRESS,
   FIELD_FERT_SUM, FIELD_DAMAGE, FIELD_CUTTINGS, FIELD_YIELD_EST, FIELD_YIELD_LAST,
+  PARCEL_OWNED,
   OP_KIND, OP_FIELD, OP_CROP, OP_STATUS, OP_ACRES_DONE, OP_SEQ, OP_FACTOR_SUM,
   EQUIP_LEVEL, WORKERS, PRICE, STORED, WEATHER, MONEY, YTD, CROP_YTD,
   FIELD_YTD_UNITS,
 ]);
 
 export function defineFarmBuffers(buffers: BufferRegistry): void {
-  const NF = FIELD_COUNT;
+  const NF = MAX_FIELDS;
+  buffers.define(FIELD_ACTIVE, { type: Uint8Array, length: NF });
+  buffers.define(FIELD_NUM, { type: Uint8Array, length: NF });
+  buffers.define(FIELD_X, { type: Uint8Array, length: NF });
+  buffers.define(FIELD_Y, { type: Uint8Array, length: NF });
+  buffers.define(FIELD_W, { type: Uint8Array, length: NF });
+  buffers.define(FIELD_H, { type: Uint8Array, length: NF });
   buffers.define(FIELD_ACRES, { type: Float32Array, length: NF });
-  buffers.define(FIELD_OWNED, { type: Uint8Array, length: NF });
   buffers.define(FIELD_SOIL_QUALITY, { type: Float32Array, length: NF });
   buffers.define(FIELD_MOISTURE, { type: Float32Array, length: NF });
   buffers.define(FIELD_FERTILITY, { type: Float32Array, length: NF });
@@ -180,6 +204,7 @@ export function defineFarmBuffers(buffers: BufferRegistry): void {
   buffers.define(OP_SEQ, { type: Int32Array, length: MAX_OPS });
   buffers.define(OP_FACTOR_SUM, { type: Float32Array, length: MAX_OPS });
 
+  buffers.define(PARCEL_OWNED, { type: Uint8Array, length: PARCEL_COUNT });
   buffers.define(EQUIP_LEVEL, { type: Uint8Array, length: EQUIP_COUNT });
   buffers.define(WORKERS, { type: Uint8Array, length: 1 });
   buffers.define(PRICE, { type: Float32Array, length: CROP_COUNT + 1 });

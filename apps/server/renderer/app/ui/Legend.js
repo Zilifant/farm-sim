@@ -69,6 +69,7 @@ export function describeLegend() {
 const OVERLAY_ENTRIES = Object.freeze([
   { glyph: '[]', colorToken: 'bright-yellow', label: 'selected / hovered cell' },
   { glyph: '▒', colorToken: 'foreground', label: "hovered cell's whole field" },
+  { glyph: '▢', colorToken: 'green', label: 'new field being placed (red = blocked)' },
 ]);
 
 export class LegendPanel {
