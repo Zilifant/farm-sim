@@ -22,9 +22,6 @@ import { TransportEvents } from './transports/RendererTransport.js';
  */
 const DRAG_THRESHOLD_PX = 4;
 
-/** How often the selected cell's inspection detail is refreshed (live query). */
-const INSPECTION_INTERVAL_MS = 2000;
-
 export class RendererApp {
   #store;
   #transport;
@@ -41,16 +38,13 @@ export class RendererApp {
    * @type {{cellX: number, cellY: number} | null}
    */
   #hoverCell = null;
-  /** @type {object | null} last cell.inspect payload for the selection */
-  #inspectionDetail = null;
-  #inspectionTimer = null;
 
   /**
    * @param {object} options
    * @param {import('./state/RendererStore.js').RendererStore} options.store
    * @param {import('./transports/RendererTransport.js').RendererTransport} options.transport
    * @param {HTMLCanvasElement} options.canvas
-   * @param {{statusPanel: object, inspector: object, metricsPanel: object,
+   * @param {{statusPanel: object, fieldWindow: object, metricsPanel: object,
    *          eventLog: object, controls: object, farmPanel: object}} options.ui
    */
   constructor({ store, transport, canvas, ui }) {
@@ -134,8 +128,7 @@ export class RendererApp {
       this.#store.applyFullSnapshot(snapshot);
       if (previousSimulation !== null && this.#store.simulationId !== previousSimulation) {
         // A restart dropped the store's selection; drop what hangs off it too.
-        this.#inspectionDetail = null;
-        this.#stopInspectionPolling();
+        this.#ui.fieldWindow.close();
         this.#hasCentered = false;
       }
       if (!this.#hasCentered && this.#store.world) {
@@ -219,65 +212,26 @@ export class RendererApp {
   // ---------------------------------------------------------------- selection
 
   /**
-   * Select a world cell. The cell is the unit of selection: open water is
-   * still worth inspecting, so clicking it reports the cell rather than
-   * clearing. Local only — nothing is sent anywhere except the inspection
-   * query that keeps the detail fresh.
+   * Select a world cell. A cell inside a field opens the floating field
+   * window beside the click — the map is the way in to every per-field
+   * action; a lane or the farmstead just carries the selection mark.
    * @param {number} cellX
    * @param {number} cellY
+   * @param {{x: number, y: number}} [anchor] viewport-relative click point
    */
-  selectCell(cellX, cellY) {
+  selectCell(cellX, cellY, anchor) {
     this.#store.setSelection({ cellX, cellY });
-    this.#inspectionDetail = null;
-    this.#refreshInspection(cellX, cellY);
+    const fieldId = this.#store.fieldIdAtXY(cellX, cellY);
+    if (fieldId !== null) {
+      this.#ui.fieldWindow.openFor(fieldId, anchor ?? { x: 0, y: 0 });
+    } else {
+      this.#ui.fieldWindow.close();
+    }
   }
 
   clearSelection() {
     this.#store.setSelection(null);
-    this.#inspectionDetail = null;
-    this.#stopInspectionPolling();
-  }
-
-  /**
-   * Fetch inspection detail for the selected cell (energy and breed age are
-   * query-only — the bulk frame carries species alone), and keep it fresh
-   * while the cell stays selected. One cell at a time, on a slow cadence,
-   * cancelled the moment the selection changes.
-   */
-  async #refreshInspection(cellX, cellY) {
-    this.#stopInspectionPolling();
-    await this.#fetchInspection(cellX, cellY);
-    this.#inspectionTimer = setInterval(() => {
-      const selection = this.#store.selection;
-      if (!selection) {
-        this.#stopInspectionPolling();
-        return;
-      }
-      this.#fetchInspection(selection.cellX, selection.cellY);
-    }, INSPECTION_INTERVAL_MS);
-  }
-
-  async #fetchInspection(cellX, cellY) {
-    try {
-      const result = await this.#transport.sendCommand({ type: 'cell.inspect', x: cellX, y: cellY });
-      const selection = this.#store.selection;
-      // The selection can change while the request is in flight; a late reply
-      // for a cell nobody is looking at any more must not overwrite the one
-      // they are.
-      if (result?.ok && selection && selection.cellX === cellX && selection.cellY === cellY) {
-        this.#inspectionDetail = result;
-        this.#updatePanels();
-      }
-    } catch {
-      // Inspection detail is optional enrichment; the store view stands alone.
-    }
-  }
-
-  #stopInspectionPolling() {
-    if (this.#inspectionTimer !== null) {
-      clearInterval(this.#inspectionTimer);
-      this.#inspectionTimer = null;
-    }
+    this.#ui.fieldWindow.close();
   }
 
   recenter() {
@@ -357,7 +311,13 @@ export class RendererApp {
       if (this.#canvas.hasPointerCapture?.(event.pointerId)) this.#canvas.releasePointerCapture(event.pointerId);
       if (wasDrag) return;
       const cell = this.#cellUnderPointer(event);
-      if (cell) this.selectCell(cell.cellX, cell.cellY);
+      if (cell) {
+        const rect = this.#canvas.getBoundingClientRect();
+        this.selectCell(cell.cellX, cell.cellY, {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        });
+      }
       this.#canvas.focus();
     };
     this.#canvas.addEventListener('pointerup', endDrag);
@@ -424,7 +384,7 @@ export class RendererApp {
 
   #updatePanels() {
     this.#ui.statusPanel.update(this.#store, this.#camera);
-    this.#ui.inspector.render(this.#store, this.#inspectionDetail);
+    this.#ui.fieldWindow.render(this.#store);
     this.#ui.metricsPanel.render(this.#store);
     this.#ui.eventLog.render(this.#store);
     this.#ui.farmPanel.render(this.#store);

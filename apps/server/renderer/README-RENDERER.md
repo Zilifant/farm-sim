@@ -25,15 +25,17 @@ pnpm build && pnpm serve     # then open http://localhost:3000
   sale. Drag or arrows/WASD to pan (shift = fast), wheel or `+`/`-` to zoom,
   `C` recenters. Hovering a cell washes its whole field, so the management
   unit reads at once.
-- **Selection**: click any cell — grey fill plus corner brackets, and the
-  Inspector shows its field: crop, stage, progress, expected yield, soil
-  quality, moisture, fertility, previous crop. `Esc` clears.
+- **Field window**: click a field and a floating window opens beside the
+  click — the field's crop, stage, progress, expected yield, and condition
+  gauges, plus every action that applies to it: plant (a crop picker with
+  live prices), fertilize, irrigate, harvest, cancel its queued work, or
+  buy the parcel if it is for sale. Drag it by its header; `Esc` or ×
+  closes. The map is the way in to all per-field play.
 - **Controls**: pause/resume (`Space`), speed ladder 0.25×–32× (`[` / `]`),
   step +1/+10/+100/N days (stepping pauses first), and New Farm from seed.
-- **Farm Office**: the management surface — queue operations
-  (plant/fertilize/irrigate/harvest per field, crop picker for planting)
-  with live progress and cancel buttons; sell from storage; borrow/repay
-  and size the crew; buy neighboring parcels and equipment upgrades.
+- **Farm Office**: the farm-wide surface — the work queue's overview with
+  cancel buttons; sell from storage; borrow/repay and size the crew;
+  machinery upgrades. Per-field actions live in the field window.
 - **Status bar**: connection, LIVE badge, simulationId, run state, calendar
   date, season, today's weather, cash, debt, camera, zoom, and the last
   command's result (cleared the moment another command goes out).
@@ -63,8 +65,9 @@ app/
   transports/
     RendererTransport.js      transport contract (from biome)
     WebSocketRendererTransport.js  live stream, backoff reconnect (from biome)
-  ui/                         status bar, controls, farm office, inspector,
-                              legend, markets, event log, collapsible, columnResize
+  ui/                         status bar, controls, farm office, floating
+                              field window, legend, markets, event log,
+                              collapsible, columnResize
   styles/
     dracula.css               the Dracula Classic palette (single source of color)
     renderer.css              layout and panel styling (from biome)

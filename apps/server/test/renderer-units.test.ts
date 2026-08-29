@@ -18,6 +18,8 @@ import { describeLegend } from "../renderer/app/ui/Legend.js";
 import { resolveAppearance, CROP_CODE_BASE, BUCKETS_PER_CROP, BUCKET_MATURE, CELL_FOR_SALE } from "../renderer/app/rendering/CellAppearance.js";
 // @ts-expect-error — plain JS browser module without type declarations
 import { formatMoney } from "../renderer/app/ui/StatusPanel.js";
+// @ts-expect-error — plain JS browser module without type declarations
+import { clampToBounds, fieldActions } from "../renderer/app/ui/FieldWindow.js";
 
 function frame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const cells = new Uint8Array(9);
@@ -163,6 +165,23 @@ describe("legend", () => {
     expect(crops?.entries.map((e) => e.label)).toContain("tomatoes (growing)");
     const land = groups.find((g) => g.title === "Land");
     expect(land?.entries.map((e) => e.label)).toContain("farmstead");
+  });
+});
+
+describe("field window", () => {
+  it("clamps the window fully inside the viewport", () => {
+    const size = { width: 200, height: 150 };
+    const bounds = { width: 800, height: 600 };
+    expect(clampToBounds({ x: 100, y: 100 }, size, bounds)).toEqual({ x: 100, y: 100 });
+    expect(clampToBounds({ x: 790, y: 590 }, size, bounds)).toEqual({ x: 592, y: 442 });
+    expect(clampToBounds({ x: -50, y: -50 }, size, bounds)).toEqual({ x: 8, y: 8 });
+  });
+
+  it("offers the actions the field's state allows", () => {
+    expect(fieldActions(null)).toEqual([]);
+    expect(fieldActions({ owned: false, crop: null })).toEqual(["buy"]);
+    expect(fieldActions({ owned: true, crop: null })).toEqual(["plant", "fertilize", "irrigate"]);
+    expect(fieldActions({ owned: true, crop: "corn" })).toEqual(["fertilize", "irrigate", "harvest"]);
   });
 });
 
