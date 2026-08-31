@@ -31,8 +31,15 @@
             id="farm-canvas"
             tabindex="0"
             role="img"
-            aria-label="ASCII map view of the farm. Fields, crops, and growth stages are drawn as colored monospace characters; use the inspector panel for a text description of the selected cell."
+            aria-label="ASCII map view of the farm. Fields, crops, and growth stages are drawn as colored monospace characters; click a field to open its floating window with details and actions."
           ></canvas>
+          <div
+            id="field-window"
+            class="field-window"
+            role="dialog"
+            aria-label="Selected field details and actions"
+            hidden
+          ></div>
         </div>
         <aside id="population-column" class="panel-column">
           <section id="metrics-panel" aria-label="Commodity markets"></section>
@@ -51,7 +58,6 @@
             aria-label="Simulation and camera controls"
           ></section>
           <section id="farm-panel" aria-label="Farm management"></section>
-          <section id="inspector-panel" aria-label="Cell inspector"></section>
           <section id="legend-panel" aria-label="Glyph legend"></section>
         </aside>
         <div
@@ -65,9 +71,10 @@
       </div>
       <footer id="help-bar">
         drag or arrows/WASD to pan (shift = fast) &middot; +/- or wheel zoom
-        &middot; click any cell to inspect its field &middot; C recenter
-        &middot; Esc clear &middot; Space pause/resume &middot; [ ] speed
-        &middot; drag a column edge to resize it
+        &middot; click a field or open land for its window &middot; F draw a
+        field &middot; R build dirt roads (shift-drag removes) &middot; C
+        recenter &middot; Esc close &middot; Space pause/resume &middot; [ ]
+        speed &middot; drag a column edge to resize it
       </footer>
     </div>
     <script type="module" src="/renderer/app/main.js"></script>

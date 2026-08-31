@@ -10,6 +10,7 @@
  * authoritative ticks.
  */
 import { RendererProtocolError } from './state/RendererStore.js';
+import { CELL_DIRT_ROAD, CELL_OWNED_GRASS, CELL_UNOWNED } from './rendering/CellAppearance.js';
 import { Camera } from './rendering/Camera.js';
 import { createProjection } from './rendering/GridProjection.js';
 import { AsciiGridRenderer } from './rendering/AsciiGridRenderer.js';
@@ -22,8 +23,9 @@ import { TransportEvents } from './transports/RendererTransport.js';
  */
 const DRAG_THRESHOLD_PX = 4;
 
-/** How often the selected cell's inspection detail is refreshed (live query). */
-const INSPECTION_INTERVAL_MS = 2000;
+/** Field-size limits, restated from @sim/farm (the sim validates regardless). */
+const MIN_FIELD_SIDE = 3;
+const MAX_FIELD_SIDE = 24;
 
 export class RendererApp {
   #store;
@@ -41,16 +43,23 @@ export class RendererApp {
    * @type {{cellX: number, cellY: number} | null}
    */
   #hoverCell = null;
-  /** @type {object | null} last cell.inspect payload for the selection */
-  #inspectionDetail = null;
-  #inspectionTimer = null;
+  /** Field-placement mode: drag a rectangle on owned ground to create a field. */
+  #placeMode = false;
+  /** @type {{x0: number, y0: number, x1: number, y1: number} | null} */
+  #placeDrag = null;
+  /** Road mode: drag paints a dirt-road path (shift-drag erases). */
+  #roadMode = false;
+  /** @type {{cells: Array<{x: number, y: number}>, erase: boolean} | null} */
+  #roadPaint = null;
+  /** Per-operation machine animation: opSeq → sweep index (float). */
+  #machineAnim = new Map();
 
   /**
    * @param {object} options
    * @param {import('./state/RendererStore.js').RendererStore} options.store
    * @param {import('./transports/RendererTransport.js').RendererTransport} options.transport
    * @param {HTMLCanvasElement} options.canvas
-   * @param {{statusPanel: object, inspector: object, metricsPanel: object,
+   * @param {{statusPanel: object, fieldWindow: object, metricsPanel: object,
    *          eventLog: object, controls: object, farmPanel: object}} options.ui
    */
   constructor({ store, transport, canvas, ui }) {
@@ -86,12 +95,19 @@ export class RendererApp {
 
     this.#transport.connect();
     const frame = () => {
+      const machines = this.#advanceMachines();
+      if (machines.length > 0) {
+        this.#dirty = true; // equipment is moving — animate every frame
+      }
       if (this.#dirty) {
         this.#dirty = false;
         this.#grid.draw({
           store: this.#store,
           camera: this.#camera,
           hoverCell: this.#hoverCell,
+          placement: this.#placementPreview(),
+          roadPaint: this.#roadPaint,
+          machines,
         });
         this.#ui.statusPanel.update(this.#store, this.#camera);
       }
@@ -134,8 +150,7 @@ export class RendererApp {
       this.#store.applyFullSnapshot(snapshot);
       if (previousSimulation !== null && this.#store.simulationId !== previousSimulation) {
         // A restart dropped the store's selection; drop what hangs off it too.
-        this.#inspectionDetail = null;
-        this.#stopInspectionPolling();
+        this.#ui.fieldWindow.close();
         this.#hasCentered = false;
       }
       if (!this.#hasCentered && this.#store.world) {
@@ -219,65 +234,35 @@ export class RendererApp {
   // ---------------------------------------------------------------- selection
 
   /**
-   * Select a world cell. The cell is the unit of selection: open water is
-   * still worth inspecting, so clicking it reports the cell rather than
-   * clearing. Local only — nothing is sent anywhere except the inspection
-   * query that keeps the detail fresh.
+   * Select a world cell. A cell inside a field opens the floating field
+   * window beside the click — the map is the way in to every per-field
+   * action; a lane or the farmstead just carries the selection mark.
    * @param {number} cellX
    * @param {number} cellY
+   * @param {{x: number, y: number}} [anchor] viewport-relative click point
    */
-  selectCell(cellX, cellY) {
+  selectCell(cellX, cellY, anchor) {
     this.#store.setSelection({ cellX, cellY });
-    this.#inspectionDetail = null;
-    this.#refreshInspection(cellX, cellY);
+    const at = anchor ?? { x: 0, y: 0 };
+    const fieldId = this.#store.fieldIdAtXY(cellX, cellY);
+    if (fieldId !== null) {
+      this.#ui.fieldWindow.openFor(fieldId, at);
+      return;
+    }
+    // Open ground: the parcel is the unit — buy it, or place a field on it.
+    // The farmstead, driveway, and road carry only the selection mark.
+    const code = this.#store.cellAtXY(cellX, cellY);
+    const parcelId = this.#store.parcelIdAtXY(cellX, cellY);
+    if (parcelId !== null && (code === CELL_OWNED_GRASS || code === CELL_UNOWNED)) {
+      this.#ui.fieldWindow.openForParcel(parcelId, at);
+    } else {
+      this.#ui.fieldWindow.close();
+    }
   }
 
   clearSelection() {
     this.#store.setSelection(null);
-    this.#inspectionDetail = null;
-    this.#stopInspectionPolling();
-  }
-
-  /**
-   * Fetch inspection detail for the selected cell (energy and breed age are
-   * query-only — the bulk frame carries species alone), and keep it fresh
-   * while the cell stays selected. One cell at a time, on a slow cadence,
-   * cancelled the moment the selection changes.
-   */
-  async #refreshInspection(cellX, cellY) {
-    this.#stopInspectionPolling();
-    await this.#fetchInspection(cellX, cellY);
-    this.#inspectionTimer = setInterval(() => {
-      const selection = this.#store.selection;
-      if (!selection) {
-        this.#stopInspectionPolling();
-        return;
-      }
-      this.#fetchInspection(selection.cellX, selection.cellY);
-    }, INSPECTION_INTERVAL_MS);
-  }
-
-  async #fetchInspection(cellX, cellY) {
-    try {
-      const result = await this.#transport.sendCommand({ type: 'cell.inspect', x: cellX, y: cellY });
-      const selection = this.#store.selection;
-      // The selection can change while the request is in flight; a late reply
-      // for a cell nobody is looking at any more must not overwrite the one
-      // they are.
-      if (result?.ok && selection && selection.cellX === cellX && selection.cellY === cellY) {
-        this.#inspectionDetail = result;
-        this.#updatePanels();
-      }
-    } catch {
-      // Inspection detail is optional enrichment; the store view stands alone.
-    }
-  }
-
-  #stopInspectionPolling() {
-    if (this.#inspectionTimer !== null) {
-      clearInterval(this.#inspectionTimer);
-      this.#inspectionTimer = null;
-    }
+    this.#ui.fieldWindow.close();
   }
 
   recenter() {
@@ -285,6 +270,169 @@ export class RendererApp {
       this.#camera.centerOn(this.#store.world.width / 2, this.#store.world.height / 2);
       this.#dirty = true;
     }
+  }
+
+  // ---------------------------------------------------------- field placement
+
+  get placing() {
+    return this.#placeMode;
+  }
+
+  /** Enter/leave placement mode: in it, dragging draws a new field's
+   * rectangle instead of panning, previewed green (placeable) or red. */
+  togglePlaceMode(on = !this.#placeMode) {
+    if (this.#placeMode === on) return;
+    if (on && this.#roadMode) this.toggleRoadMode(false);
+    this.#placeMode = on;
+    this.#placeDrag = null;
+    this.#canvas.classList.toggle('placing', on);
+    this.#ui.statusPanel.setCommandStatus(
+      on ? 'placing a field — drag a rectangle on your ground (Esc cancels)' : 'placement cancelled',
+      'ok',
+    );
+    if (on) {
+      this.clearSelection();
+      this.#canvas.focus();
+    }
+    this.#dirty = true;
+  }
+
+  /** The normalized in-progress rectangle with validity, or null. */
+  #placementPreview() {
+    if (!this.#placeMode || !this.#placeDrag) return null;
+    const rect = normalizeRect(this.#placeDrag);
+    return { ...rect, valid: this.#placementValid(rect) };
+  }
+
+  /** Client-side check so the preview can say no before the sim does: every
+   * covered cell must be the player's open ground, sides within limits. */
+  #placementValid(rect) {
+    const world = this.#store.world;
+    if (!world) return false;
+    if (rect.w < MIN_FIELD_SIDE || rect.h < MIN_FIELD_SIDE) return false;
+    if (rect.w > MAX_FIELD_SIDE || rect.h > MAX_FIELD_SIDE) return false;
+    if (rect.x < 0 || rect.y < 0 || rect.x + rect.w > world.width || rect.y + rect.h > world.height) return false;
+    for (let y = rect.y; y < rect.y + rect.h; y += 1) {
+      for (let x = rect.x; x < rect.x + rect.w; x += 1) {
+        if (this.#store.cellAtXY(x, y) !== CELL_OWNED_GRASS) return false;
+      }
+    }
+    return true;
+  }
+
+  async #finishPlacement() {
+    const preview = this.#placementPreview();
+    this.#placeDrag = null;
+    if (!preview) {
+      this.togglePlaceMode(false);
+      return;
+    }
+    if (!preview.valid) {
+      this.#ui.statusPanel.setCommandStatus(
+        'that rectangle will not work — it must sit on your open ground, at least 3×3 cells',
+        'bad',
+      );
+      this.#dirty = true;
+      return; // stay in placement mode for another try
+    }
+    this.togglePlaceMode(false);
+    const command = {
+      type: 'farm.command',
+      command: { kind: 'farm.field.create', x: preview.x, y: preview.y, w: preview.w, h: preview.h },
+    };
+    const result = await this.sendCommand(command);
+    this.#ui.statusPanel.setCommandStatus(
+      result?.ok
+        ? `field created (${preview.w * preview.h / 2} ac)`
+        : `field.create failed: ${result?.error?.message ?? 'unknown error'}`,
+      result?.ok ? 'ok' : 'bad',
+    );
+  }
+
+  // ------------------------------------------------------------- road mode
+
+  get buildingRoads() {
+    return this.#roadMode;
+  }
+
+  /** Enter/leave road mode: dragging paints a dirt-road path (shift-drag
+   * erases existing dirt road); release sends the build/remove command. */
+  toggleRoadMode(on = !this.#roadMode) {
+    if (this.#roadMode === on) return;
+    if (on && this.#placeMode) this.togglePlaceMode(false);
+    this.#roadMode = on;
+    this.#roadPaint = null;
+    this.#canvas.classList.toggle('placing', on);
+    this.#ui.statusPanel.setCommandStatus(
+      on
+        ? 'building roads — drag a path on your ground; shift-drag removes (Esc done)'
+        : 'road building done',
+      'ok',
+    );
+    if (on) {
+      this.clearSelection();
+      this.#canvas.focus();
+    }
+    this.#dirty = true;
+  }
+
+  /** Extend the painted path with the cell if it qualifies. */
+  #paintRoadCell(cell) {
+    if (!cell || !this.#roadPaint) return;
+    const want = this.#roadPaint.erase ? CELL_DIRT_ROAD : CELL_OWNED_GRASS;
+    if (this.#store.cellAtXY(cell.cellX, cell.cellY) !== want) return;
+    if (this.#roadPaint.cells.some((c) => c.x === cell.cellX && c.y === cell.cellY)) return;
+    this.#roadPaint.cells.push({ x: cell.cellX, y: cell.cellY });
+    this.#dirty = true;
+  }
+
+  async #finishRoadPaint() {
+    const paint = this.#roadPaint;
+    this.#roadPaint = null;
+    this.#dirty = true;
+    if (!paint || paint.cells.length === 0) return;
+    const command = {
+      type: 'farm.command',
+      command: { kind: paint.erase ? 'farm.road.remove' : 'farm.road.build', cells: paint.cells },
+    };
+    const result = await this.sendCommand(command);
+    this.#ui.statusPanel.setCommandStatus(
+      result?.ok
+        ? `${paint.erase ? 'removed' : 'built'} ${paint.cells.length} road cell${paint.cells.length === 1 ? '' : 's'}`
+        : `road ${paint.erase ? 'removal' : 'building'} failed: ${result?.error?.message ?? 'unknown error'}`,
+      result?.ok ? 'ok' : 'bad',
+    );
+    // Stay in road mode: paths are usually laid in several strokes.
+  }
+
+  // ------------------------------------------------------------- machines
+
+  /**
+   * Advance every active operation's machine along its field's serpentine
+   * sweep toward the authoritative progress point. Presentation only: the
+   * sweep position is derived from the host's acresDone, never the reverse.
+   */
+  #advanceMachines() {
+    const machines = [];
+    const liveSeqs = new Set();
+    for (const op of this.#store.ops) {
+      if (op.status !== 'active' || op.acresTotal <= 0) continue;
+      const field = this.#store.fieldById(op.field);
+      if (!field) continue;
+      const totalCells = field.w * field.h;
+      const target = Math.min(totalCells - 1, (op.acresDone / op.acresTotal) * totalCells);
+      let idx = this.#machineAnim.get(op.seq) ?? 0;
+      idx += (target - idx) * 0.08;
+      if (Math.abs(target - idx) < 0.05) idx = target;
+      this.#machineAnim.set(op.seq, idx);
+      liveSeqs.add(op.seq);
+      const cell = serpentineCell(field, Math.max(0, Math.min(totalCells - 1, Math.floor(idx))));
+      machines.push({ cellX: cell.x, cellY: cell.y, kind: op.kind });
+    }
+    for (const seq of [...this.#machineAnim.keys()]) {
+      if (!liveSeqs.has(seq)) this.#machineAnim.delete(seq);
+    }
+    return machines;
   }
 
   // -------------------------------------------------------------------- input
@@ -323,10 +471,40 @@ export class RendererApp {
     this.#canvas.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) return;
       this.#setHoverCell(null);
+      if (this.#roadMode) {
+        this.#roadPaint = { cells: [], erase: event.shiftKey };
+        this.#paintRoadCell(this.#cellUnderPointer(event));
+        this.#canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+      if (this.#placeMode) {
+        const cell = this.#cellUnderPointer(event);
+        if (cell) {
+          this.#placeDrag = { x0: cell.cellX, y0: cell.cellY, x1: cell.cellX, y1: cell.cellY };
+          this.#canvas.setPointerCapture(event.pointerId);
+          this.#dirty = true;
+        }
+        return;
+      }
       dragging = { startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, moved: false };
       this.#canvas.setPointerCapture(event.pointerId);
     });
     this.#canvas.addEventListener('pointermove', (event) => {
+      if (this.#roadMode) {
+        if (this.#roadPaint) this.#paintRoadCell(this.#cellUnderPointer(event));
+        return;
+      }
+      if (this.#placeMode) {
+        if (this.#placeDrag) {
+          const cell = this.#cellUnderPointer(event);
+          if (cell && (cell.cellX !== this.#placeDrag.x1 || cell.cellY !== this.#placeDrag.y1)) {
+            this.#placeDrag.x1 = cell.cellX;
+            this.#placeDrag.y1 = cell.cellY;
+            this.#dirty = true;
+          }
+        }
+        return;
+      }
       if (!dragging) {
         this.#setHoverCell(this.#cellUnderPointer(event));
         return;
@@ -350,6 +528,16 @@ export class RendererApp {
     });
     this.#canvas.addEventListener('pointerleave', () => this.#setHoverCell(null));
     const endDrag = (event) => {
+      if (this.#roadMode) {
+        if (this.#canvas.hasPointerCapture?.(event.pointerId)) this.#canvas.releasePointerCapture(event.pointerId);
+        if (this.#roadPaint) void this.#finishRoadPaint();
+        return;
+      }
+      if (this.#placeMode) {
+        if (this.#canvas.hasPointerCapture?.(event.pointerId)) this.#canvas.releasePointerCapture(event.pointerId);
+        if (this.#placeDrag) void this.#finishPlacement();
+        return;
+      }
       if (!dragging) return;
       const wasDrag = dragging.moved;
       dragging = null;
@@ -357,7 +545,13 @@ export class RendererApp {
       if (this.#canvas.hasPointerCapture?.(event.pointerId)) this.#canvas.releasePointerCapture(event.pointerId);
       if (wasDrag) return;
       const cell = this.#cellUnderPointer(event);
-      if (cell) this.selectCell(cell.cellX, cell.cellY);
+      if (cell) {
+        const rect = this.#canvas.getBoundingClientRect();
+        this.selectCell(cell.cellX, cell.cellY, {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        });
+      }
       this.#canvas.focus();
     };
     this.#canvas.addEventListener('pointerup', endDrag);
@@ -391,7 +585,17 @@ export class RendererApp {
         case '+': case '=': this.#zoom(1); break;
         case '-': case '_': this.#zoom(-1); break;
         case 'c': case 'C': this.recenter(); break;
-        case 'Escape': this.clearSelection(); break;
+        case 'f': case 'F': this.togglePlaceMode(); break;
+        case 'r': case 'R': this.toggleRoadMode(); break;
+        case 'Escape':
+          if (this.#roadMode) {
+            this.toggleRoadMode(false);
+          } else if (this.#placeMode) {
+            this.togglePlaceMode(false);
+          } else {
+            this.clearSelection();
+          }
+          break;
         case ' ': this.toggleRun(); break;
         case '[': this.#ui.controls.stepSpeed(-1); break;
         case ']': this.#ui.controls.stepSpeed(1); break;
@@ -424,9 +628,28 @@ export class RendererApp {
 
   #updatePanels() {
     this.#ui.statusPanel.update(this.#store, this.#camera);
-    this.#ui.inspector.render(this.#store, this.#inspectionDetail);
+    this.#ui.fieldWindow.render(this.#store);
     this.#ui.metricsPanel.render(this.#store);
     this.#ui.eventLog.render(this.#store);
     this.#ui.farmPanel.render(this.#store);
   }
+}
+
+/** Two drag corners → a normalized world rect. */
+function normalizeRect({ x0, y0, x1, y1 }) {
+  const x = Math.min(x0, x1);
+  const y = Math.min(y0, y1);
+  return { x, y, w: Math.abs(x1 - x0) + 1, h: Math.abs(y1 - y0) + 1 };
+}
+
+/**
+ * The i-th cell of the serpentine work sweep over a field rect — the same
+ * boustrophedon order the host paints worked cells in (restated from
+ * @sim/farm; a protocol convention, not an import).
+ */
+function serpentineCell(rect, i) {
+  const row = Math.floor(i / rect.w);
+  const col = i - row * rect.w;
+  const x = row % 2 === 0 ? rect.x + col : rect.x + rect.w - 1 - col;
+  return { x, y: rect.y + row };
 }

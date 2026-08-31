@@ -11,7 +11,7 @@
  * with the exact hex fallbacks from CellAppearance for safety.
  */
 import { createProjection } from './GridProjection.js';
-import { DRACULA_COLORS, resolveAppearance } from './CellAppearance.js';
+import { DRACULA_COLORS, EQUIPMENT_APPEARANCE, resolveAppearance } from './CellAppearance.js';
 
 const MONO_STACK =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -76,8 +76,15 @@ export class AsciiGridRenderer {
    * @param {{cellX: number, cellY: number} | null} [options.hoverCell]
    *        the cell under the pointer, framed in yellow corner brackets (the
    *        crosshair cursor aims at it) — grey fill stays selection-only
+   * @param {{x: number, y: number, w: number, h: number, valid: boolean} | null}
+   *        [options.placement] the field rectangle being drawn in placement
+   *        mode, washed green (placeable) or red (blocked)
+   * @param {{cells: Array<{x: number, y: number}>, erase: boolean} | null}
+   *        [options.roadPaint] the dirt-road path being painted in road mode
+   * @param {Array<{cellX: number, cellY: number, kind: string}>} [options.machines]
+   *        equipment at work, one marker per active operation
    */
-  draw({ store, camera, hoverCell = null }) {
+  draw({ store, camera, hoverCell = null, placement = null, roadPaint = null, machines = [] }) {
     const ctx = this.#context;
     const projection = createProjection(camera, this.#cssWidth, this.#cssHeight);
     const { cellSize } = projection;
@@ -140,6 +147,48 @@ export class AsciiGridRenderer {
       const appearance = resolveAppearance(store.cellAtXY(selection.cellX, selection.cellY));
       ctx.fillStyle = this.#color('bright-yellow');
       ctx.fillText(appearance.glyph, px + half, py + half);
+    }
+
+    // --- Equipment: an inverse cell (filled square, dark glyph) per active
+    // operation, driven along its field's sweep by the app's animation.
+    for (const machine of machines) {
+      const appearance = EQUIPMENT_APPEARANCE[machine.kind];
+      if (!appearance) continue;
+      const { px, py } = projection.cellToScreen(machine.cellX, machine.cellY);
+      ctx.fillStyle = this.#color(appearance.colorToken);
+      ctx.fillRect(px, py, cellSize, cellSize);
+      ctx.fillStyle = this.#color('background');
+      ctx.fillText(appearance.glyph, px + half, py + half);
+    }
+
+    // --- Road paint: the dirt-road path under construction (or erasure).
+    if (roadPaint && roadPaint.cells.length > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = this.#color(roadPaint.erase ? 'red' : 'orange');
+      for (const cell of roadPaint.cells) {
+        const { px, py } = projection.cellToScreen(cell.x, cell.y);
+        ctx.fillRect(px, py, cellSize, cellSize);
+      }
+      ctx.restore();
+    }
+
+    // --- Placement preview: the field being drawn, washed green or red with
+    // a solid outline. Drawn over the glyphs — while placing, the rectangle
+    // is what the player is looking at.
+    if (placement && placement.w > 0 && placement.h > 0) {
+      const { px, py } = projection.cellToScreen(placement.x, placement.y);
+      const wPx = placement.w * cellSize;
+      const hPx = placement.h * cellSize;
+      const color = this.#color(placement.valid ? 'green' : 'red');
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = color;
+      ctx.fillRect(px, py, wPx, hPx);
+      ctx.restore();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px + 1, py + 1, wPx - 2, hPx - 2);
     }
 
     // --- Hover mark, drawn last so it sits above everything: yellow corner

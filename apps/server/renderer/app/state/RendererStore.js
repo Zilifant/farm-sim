@@ -42,14 +42,18 @@ export class RendererStore {
   cells = null;
   /** @type {Uint8Array | null} field id per cell (255 = none), row-major */
   fieldIds = null;
+  /** @type {Uint8Array | null} parcel id per cell (255 = the road), row-major */
+  parcelIds = null;
   /** @type {object | null} calendar date {year, doy, month, dayOfMonth, season, label} */
   date = null;
   /** @type {object | null} today's weather {high, low, rain} */
   weather = null;
   /** @type {Array<object>} short-term forecast, nearest first */
   forecast = [];
-  /** @type {Array<object>} per-field state, by field id */
+  /** @type {Array<object>} the active fields (each carries its own id) */
   fields = [];
+  /** @type {Array<object>} the land parcels, by id */
+  parcels = [];
   /** @type {Array<object>} the operation queue, oldest first */
   ops = [];
   /** @type {Array<object>} equipment levels and capacities */
@@ -109,6 +113,18 @@ export class RendererStore {
     return id === 255 ? null : id;
   }
 
+  /** The parcel id under a cell, or null (the road). @param {number} cellX @param {number} cellY */
+  parcelIdAtXY(cellX, cellY) {
+    if (!this.world || !this.parcelIds) return null;
+    const id = this.parcelIds[cellY * this.world.width + cellX];
+    return id === 255 ? null : id;
+  }
+
+  /** A field row by its id (fields are sparse slots, not array positions). */
+  fieldById(id) {
+    return this.fields.find((f) => f.id === id) ?? null;
+  }
+
   /**
    * Apply a full frame, replacing the world. Validates the protocol version
    * and shape; a frame from another simulation (a restart) drops the old
@@ -142,10 +158,12 @@ export class RendererStore {
     this.world = frame.world;
     this.cells = cells;
     this.fieldIds = typeof frame.fieldIds === 'string' ? decodeBase64(frame.fieldIds) : this.fieldIds;
+    this.parcelIds = typeof frame.parcelIds === 'string' ? decodeBase64(frame.parcelIds) : this.parcelIds;
     this.date = frame.date ?? null;
     this.weather = frame.weather ?? null;
     this.forecast = Array.isArray(frame.forecast) ? frame.forecast : [];
     this.fields = Array.isArray(frame.fields) ? frame.fields : [];
+    this.parcels = Array.isArray(frame.parcels) ? frame.parcels : [];
     this.ops = Array.isArray(frame.ops) ? frame.ops : [];
     this.equipment = Array.isArray(frame.equipment) ? frame.equipment : [];
     this.markets = Array.isArray(frame.markets) ? frame.markets : [];

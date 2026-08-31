@@ -755,3 +755,88 @@ input:focus-visible {
   min-width: 0;
   flex: 1 1 auto;
 }
+
+
+/* The floating field window: the per-field control surface, opened by
+   clicking a field on the map. Absolutely positioned inside #viewport-wrap,
+   dragged by its header, always fully inside the viewport. */
+.field-window {
+  position: absolute;
+  z-index: 20;
+  min-width: 240px;
+  max-width: 300px;
+  background: var(--dracula-background-dark);
+  border: 1px solid var(--dracula-current-line);
+  border-radius: 4px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  font-size: 0.85rem;
+}
+
+.field-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--dracula-background-darker);
+  border-bottom: 1px solid var(--dracula-current-line);
+  border-radius: 4px 4px 0 0;
+  cursor: grab;
+  user-select: none;
+  font-weight: 600;
+}
+
+.field-window-header:active {
+  cursor: grabbing;
+}
+
+.field-window-header button {
+  padding: 0 0.4rem;
+  line-height: 1.2;
+}
+
+.field-window-body {
+  padding: 0.4rem 0.5rem 0.5rem;
+}
+
+.field-window-body .field {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.08rem 0;
+}
+
+.field-window-body .control-row {
+  margin-top: 0.4rem;
+}
+
+.field-window-wide {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.field-window-plant {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 0.25rem;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+
+.field-window-plant .dim {
+  grid-column: 1 / -1;
+}
+
+.field-window-plant button {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* Field-placement mode: the map is a drawing surface. */
+#farm-canvas.placing {
+  cursor: crosshair;
+}

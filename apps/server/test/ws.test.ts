@@ -18,14 +18,21 @@ interface Frame {
     simulationId?: string;
     cells?: string;
     fieldIds?: string;
+    parcelIds?: string;
     world?: { width: number; height: number };
-    fields?: Array<{ id: number; name: string; owned: boolean; acres: number }>;
+    fields?: Array<{ id: number; name: string; acres: number; x: number; y: number; w: number; h: number }>;
+    parcels?: Array<{ id: number; name: string; owned: boolean; acres: number; price: number }>;
     ops?: Array<{ seq: number; kind: string }>;
     markets?: Array<{ key: string; price: number }>;
     finance?: { cash: number; debt: number };
     events?: Array<{ seq: number; kind: string; tick: number; message: string }>;
     ok?: boolean;
-    cell?: { x: number; y: number; kind: string; field: { name: string; moisture: number } | null };
+    cell?: {
+      x: number; y: number; kind: string;
+      field: { name: string; moisture: number } | null;
+      parcel: { id: number; owned: boolean } | null;
+      soilQuality: number;
+    };
     error?: { code: string; message: string };
   };
 }
@@ -136,15 +143,20 @@ describe("renderer WebSocket protocol", () => {
   it("sends a full frame on connect, and further frames as days advance", async () => {
     const { client } = await startRig();
     const first = await client.frame((f) => f.type === "snapshot.full");
-    expect(first.payload.world).toEqual({ width: 64, height: 40 });
+    expect(first.payload.world).toEqual({ width: 96, height: 56 });
     expect(first.payload.seed).toBe(42);
     expect(first.payload.running).toBe(true);
     const cells = Buffer.from(String(first.payload.cells), "base64");
-    expect(cells.length).toBe(64 * 40);
-    expect(new Set(cells).size).toBeGreaterThan(1); // fields, farmstead, lanes
+    expect(cells.length).toBe(96 * 56);
+    expect(new Set(cells).size).toBeGreaterThan(1); // owned/unowned ground, road, farmstead
     const fieldIds = Buffer.from(String(first.payload.fieldIds), "base64");
-    expect(fieldIds.length).toBe(64 * 40);
-    expect(first.payload.fields!.length).toBe(9);
+    expect(fieldIds.length).toBe(96 * 56);
+    expect(new Set(fieldIds)).toEqual(new Set([255])); // no fields yet — the player places them
+    const parcelIds = Buffer.from(String(first.payload.parcelIds), "base64");
+    expect(parcelIds.length).toBe(96 * 56);
+    expect(first.payload.fields!.length).toBe(0);
+    expect(first.payload.parcels!.length).toBe(16);
+    expect(first.payload.parcels!.filter((p) => p.owned)).toHaveLength(1); // the homestead
     expect(first.payload.markets!.length).toBe(6);
     expect(first.payload.finance!.cash).toBeGreaterThan(0);
 
@@ -188,6 +200,23 @@ describe("renderer WebSocket protocol", () => {
     );
     expect(frame.payload.finance!.debt).toBeGreaterThan(200_000); // start debt + loan
 
+    const created = await client.command({
+      type: "farm.command",
+      command: { kind: "farm.field.create", x: 24, y: 0, w: 12, h: 9 },
+    });
+    expect(created.payload.ok).toBe(true);
+    const withField = await client.frame(
+      (f) => f.type === "snapshot.full" && (f.payload.fields ?? []).length > 0,
+    );
+    expect(withField.payload.fields![0]!).toMatchObject({ x: 24, y: 0, w: 12, h: 9, acres: 54 });
+
+    const rejected = await client.command({
+      type: "farm.command",
+      command: { kind: "farm.field.create", x: 0, y: 0, w: 6, h: 6 }, // unowned parcel
+    });
+    expect(rejected.payload.ok).toBe(false);
+    expect(rejected.payload.error?.message).toMatch(/not yours/);
+
     const scheduled = await client.command({
       type: "farm.command",
       command: { kind: "farm.op.schedule", op: 1, field: 0, crop: 1 },
@@ -212,23 +241,30 @@ describe("renderer WebSocket protocol", () => {
     expect(unknown.payload.ok).toBe(false);
   }, 15_000);
 
-  it("answers cell.inspect for fields and terrain", async () => {
+  it("answers cell.inspect for fields, parcels, and terrain", async () => {
     const { client } = await startRig({ running: false });
-    const frame = await client.frame((f) => f.type === "snapshot.full");
-    const fieldIds = Buffer.from(String(frame.payload.fieldIds), "base64");
-    const inField = fieldIds.findIndex((id) => id !== 255);
-    const x = inField % 64;
-    const y = Math.floor(inField / 64);
-    const inspected = await client.command({ type: "cell.inspect", x, y });
+    await client.command({
+      type: "farm.command",
+      command: { kind: "farm.field.create", x: 24, y: 0, w: 6, h: 6 },
+    });
+    const inspected = await client.command({ type: "cell.inspect", x: 26, y: 2 });
     expect(inspected.payload.ok).toBe(true);
     expect(inspected.payload.cell?.kind).toBe("field");
-    expect(inspected.payload.cell?.field?.name).toBeDefined();
+    expect(inspected.payload.cell?.field?.name).toBe("Field 1");
     expect(inspected.payload.cell?.field?.moisture).toBeGreaterThan(0);
+    expect(inspected.payload.cell?.soilQuality).toBeGreaterThan(0.5);
 
-    const lane = fieldIds.findIndex((id) => id === 255);
-    const grass = await client.command({ type: "cell.inspect", x: lane % 64, y: Math.floor(lane / 64) });
+    // Open ground on an unowned parcel reports the parcel, no field.
+    const grass = await client.command({ type: "cell.inspect", x: 2, y: 2 });
     expect(grass.payload.ok).toBe(true);
+    expect(grass.payload.cell?.kind).toBe("grass");
     expect(grass.payload.cell?.field).toBeNull();
+    expect(grass.payload.cell?.parcel?.owned).toBe(false);
+
+    // The road belongs to no parcel.
+    const road = await client.command({ type: "cell.inspect", x: 10, y: 27 });
+    expect(road.payload.cell?.kind).toBe("road");
+    expect(road.payload.cell?.parcel).toBeNull();
 
     const outOfRange = await client.command({ type: "cell.inspect", x: 999, y: 0 });
     expect(outOfRange.payload.ok).toBe(false);
@@ -236,11 +272,16 @@ describe("renderer WebSocket protocol", () => {
 
   it("streams farm events with monotonic seqs once operations run", async () => {
     const { client } = await startRig();
-    // Field 4 is small (54 ac) and fertilizing has daily capacity to spare,
-    // so the op completes within a few simulated days.
+    // A small field beside the public road (reachable with no dirt roads),
+    // then a fertilizer pass with capacity to spare — the op completes
+    // within a few simulated days.
     await client.command({
       type: "farm.command",
-      command: { kind: "farm.op.schedule", op: 2, field: 4, crop: 0 },
+      command: { kind: "farm.field.create", x: 24, y: 24, w: 6, h: 3 },
+    });
+    await client.command({
+      type: "farm.command",
+      command: { kind: "farm.op.schedule", op: 2, field: 0, crop: 0 },
     });
     const batch = await client.frame(
       (f) => f.type === "events.batch" && (f.payload.events ?? []).some((e) => e.kind === "op"),

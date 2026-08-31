@@ -35,7 +35,9 @@ maps into `dist/`.
   hashes), `snapshot/` (binary codec, migrator, replay log), `profile/`.
 - `packages/farm` — the farm sim, one tick = one day: `catalog.ts` (crops,
   equipment, economy constants — balance lives here), `layout.ts` (the
-  fixed field map + renderer cell codes), `state.ts` (every state buffer +
+  land: road/homestead/parcel geometry, the seeded soil-quality map,
+  field/road placement rules, road-network reachability, the serpentine
+  work sweep, renderer cell codes), `state.ts` (every state buffer +
   config; `STATE_BUFFERS` order is part of the snapshot/hash schema),
   `weather.ts` (pure counter-hash weather + forecast), `systems.ts`
   (weather → soil → operations → growth → market → finance → year end),
@@ -47,7 +49,13 @@ maps into `dist/`.
   codes plus structured farm state); `renderer/` plain browser ES modules
   (no build step); `public/index.html`.
 
-The farm runs single-threaded — nine fields do not need workers — but keeps
+The player starts with only the homestead parcel and *places fields freely*
+(dynamic rectangles on owned ground, `MAX_FIELDS` slots); neighboring
+parcels are purchasable to grow the placeable area. Fields must be
+*reachable* — connected to the driveway/public road by player-built dirt
+roads (or adjacent to a reachable field) — before equipment will work them.
+
+The farm runs single-threaded — a couple dozen fields do not need workers — but keeps
 the runtime's determinism contract: identical state hash across repeated
 runs, save/restore, and command-log replay (`packages/farm/test`).
 
@@ -82,9 +90,9 @@ runs, save/restore, and command-log replay (`packages/farm/test`).
 ## Gotchas
 
 - Balance numbers (crop yields, the soil water balance, climate) interlock:
-  the smoke check is a scripted year — plant the six owned fields in
-  spring, harvest in fall — which should complete all plantings in-window
-  and land corn near 90–130 bu/ac. `packages/farm/test/farm.test.ts` pins
+  the smoke check is a scripted year — place fields on the homestead, plant
+  in spring, harvest in fall — which should complete all plantings
+  in-window and land corn near 90–130 bu/ac. `packages/farm/test/farm.test.ts` pins
   the qualitative dynamics (late planting loses, fertilizer pays, rotation
   matters); re-tune against those.
 - Benchmark numbers in docs are historical single-machine readings;

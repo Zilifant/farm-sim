@@ -15,15 +15,19 @@ import { resample, sparkline, TREND_LEVELS } from "../renderer/app/ui/MetricsPan
 // @ts-expect-error — plain JS browser module without type declarations
 import { describeLegend } from "../renderer/app/ui/Legend.js";
 // @ts-expect-error — plain JS browser module without type declarations
-import { resolveAppearance, CROP_CODE_BASE, BUCKETS_PER_CROP, BUCKET_MATURE, CELL_FOR_SALE } from "../renderer/app/rendering/CellAppearance.js";
+import { resolveAppearance, CROP_CODE_BASE, BUCKETS_PER_CROP, BUCKET_MATURE, CELL_UNOWNED, CELL_OWNED_GRASS } from "../renderer/app/rendering/CellAppearance.js";
 // @ts-expect-error — plain JS browser module without type declarations
 import { formatMoney } from "../renderer/app/ui/StatusPanel.js";
+// @ts-expect-error — plain JS browser module without type declarations
+import { clampToBounds, fieldActions } from "../renderer/app/ui/FieldWindow.js";
 
 function frame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  const cells = new Uint8Array(9);
+  const cells = new Uint8Array(9).fill(CELL_OWNED_GRASS);
   cells[4] = CROP_CODE_BASE; // one planted-corn cell, center
   const fieldIds = new Uint8Array(9).fill(255);
-  fieldIds[4] = 0;
+  fieldIds[4] = 3; // slot ids need not be dense
+  const parcelIds = new Uint8Array(9).fill(0);
+  parcelIds[0] = 255; // a road corner
   return {
     protocolVersion: 2,
     simulationId: "farm-1-0",
@@ -34,10 +38,12 @@ function frame(overrides: Record<string, unknown> = {}): Record<string, unknown>
     world: { width: 3, height: 3 },
     cells: Buffer.from(cells).toString("base64"),
     fieldIds: Buffer.from(fieldIds).toString("base64"),
+    parcelIds: Buffer.from(parcelIds).toString("base64"),
     date: { year: 1, doy: 5, month: "Jan", dayOfMonth: 6, season: "winter", label: "Y1 Jan 6" },
     weather: { high: 30, low: 18, rain: 0 },
     forecast: [],
-    fields: [{ id: 0, name: "North A", owned: true, acres: 90 }],
+    fields: [{ id: 3, name: "Field 1", acres: 24, x: 1, y: 1, w: 1, h: 1, reachable: true }],
+    parcels: [{ id: 0, name: "N1", owned: true, acres: 162, price: 891000, isHomestead: true }],
     ops: [],
     equipment: [],
     markets: [{ key: "corn", name: "Corn", unit: "bu", price: 4.9, basePrice: 4.8, stored: 0 }],
@@ -83,8 +89,12 @@ describe("RendererStore", () => {
     expect(store.tick).toBe(5);
     expect(store.runState).toEqual({ paused: false, speed: 2 });
     expect(store.cellAtXY(1, 1)).toBe(CROP_CODE_BASE);
-    expect(store.fieldIdAtXY(1, 1)).toBe(0);
+    expect(store.fieldIdAtXY(1, 1)).toBe(3);
     expect(store.fieldIdAtXY(0, 0)).toBeNull();
+    expect(store.fieldById(3)?.name).toBe("Field 1");
+    expect(store.fieldById(0)).toBeNull();
+    expect(store.parcelIdAtXY(0, 0)).toBeNull(); // the road
+    expect(store.parcelIdAtXY(1, 0)).toBe(0);
     expect(store.history).toEqual([{ tick: 5, cash: 150000, prices: { corn: 4.9 } }]);
     // Same tick again (a forced frame): no duplicate history sample.
     store.applyFullSnapshot(frame());
@@ -150,7 +160,8 @@ describe("cell appearance", () => {
       seen.add(`${mature.glyph}:${mature.colorToken}`);
     }
     expect(seen.size).toBe(6); // no two crops share glyph+color at maturity
-    expect(resolveAppearance(CELL_FOR_SALE).label).toContain("for sale");
+    expect(resolveAppearance(CELL_UNOWNED).label).toContain("for sale");
+    expect(resolveAppearance(CELL_OWNED_GRASS).label).toContain("place fields");
     expect(resolveAppearance(200).label).toBe("unknown");
   });
 });
@@ -163,6 +174,25 @@ describe("legend", () => {
     expect(crops?.entries.map((e) => e.label)).toContain("tomatoes (growing)");
     const land = groups.find((g) => g.title === "Land");
     expect(land?.entries.map((e) => e.label)).toContain("farmstead");
+    expect(land?.entries.map((e) => e.label)).toContain("dirt road (player-built)");
+    const machines = groups.find((g) => g.title === "Equipment");
+    expect(machines?.entries.map((e) => e.label)).toContain("harvester at work");
+  });
+});
+
+describe("field window", () => {
+  it("clamps the window fully inside the viewport", () => {
+    const size = { width: 200, height: 150 };
+    const bounds = { width: 800, height: 600 };
+    expect(clampToBounds({ x: 100, y: 100 }, size, bounds)).toEqual({ x: 100, y: 100 });
+    expect(clampToBounds({ x: 790, y: 590 }, size, bounds)).toEqual({ x: 592, y: 442 });
+    expect(clampToBounds({ x: -50, y: -50 }, size, bounds)).toEqual({ x: 8, y: 8 });
+  });
+
+  it("offers the actions the field's state allows", () => {
+    expect(fieldActions(null)).toEqual([]);
+    expect(fieldActions({ crop: null })).toEqual(["plant", "fertilize", "irrigate", "remove"]);
+    expect(fieldActions({ crop: "corn" })).toEqual(["fertilize", "irrigate", "harvest"]);
   });
 });
 

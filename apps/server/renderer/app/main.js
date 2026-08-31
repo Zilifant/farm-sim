@@ -8,11 +8,11 @@ import { RendererApp } from './RendererApp.js';
 import { WebSocketRendererTransport } from './transports/WebSocketRendererTransport.js';
 import { StatusPanel } from './ui/StatusPanel.js';
 import { LegendPanel } from './ui/Legend.js';
-import { InspectorPanel } from './ui/InspectorPanel.js';
 import { MetricsPanel } from './ui/MetricsPanel.js';
 import { EventLog } from './ui/EventLog.js';
 import { Controls } from './ui/Controls.js';
 import { FarmPanel } from './ui/FarmPanel.js';
+import { FieldWindow } from './ui/FieldWindow.js';
 import { makeSectionsCollapsible } from './ui/collapsible.js';
 import { makeColumnsResizable } from './ui/columnResize.js';
 
@@ -25,7 +25,6 @@ const canvas = document.getElementById('farm-canvas');
 const appRef = { current: null };
 const ui = {
   statusPanel: new StatusPanel(document.getElementById('status-bar')),
-  inspector: new InspectorPanel(document.getElementById('inspector-panel')),
   // The legend is generated from the appearance registry and never changes
   // after construction, so it is built once and not given to the app to render.
   legendPanel: new LegendPanel(document.getElementById('legend-panel')),
@@ -33,10 +32,21 @@ const ui = {
   eventLog: new EventLog(document.getElementById('event-log-panel')),
   controls: null,
   farmPanel: null,
+  fieldWindow: null,
 };
+// The floating field window lives over the viewport: click a field on the
+// map and it opens beside the click with that field's info and actions.
+ui.fieldWindow = new FieldWindow(document.getElementById('field-window'), {
+  onCommand: (command) => appRef.current.sendCommand(command),
+  onStatus: (text, kind) => ui.statusPanel.setCommandStatus(text, kind),
+  onClose: () => appRef.current.clearSelection(),
+  onPlaceField: () => appRef.current.togglePlaceMode(true),
+});
 ui.farmPanel = new FarmPanel(document.getElementById('farm-panel'), {
   onCommand: (command) => appRef.current.sendCommand(command),
   onStatus: (text, kind) => ui.statusPanel.setCommandStatus(text, kind),
+  onPlaceField: () => appRef.current.togglePlaceMode(true),
+  onBuildRoad: () => appRef.current.toggleRoadMode(true),
 });
 ui.controls = new Controls(document.getElementById('controls-panel'), {
   onCommand: (command) => appRef.current.sendCommand(command),
@@ -56,7 +66,6 @@ ui.controls = new Controls(document.getElementById('controls-panel'), {
 makeSectionsCollapsible([
   document.getElementById('controls-panel'),
   document.getElementById('farm-panel'),
-  document.getElementById('inspector-panel'),
   document.getElementById('metrics-panel'),
   document.getElementById('event-log-panel'),
 ]);

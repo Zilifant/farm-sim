@@ -21,19 +21,36 @@ pnpm build && pnpm serve     # then open http://localhost:3000
 
 - **Map**: fields as blocks of crop glyphs — shape tracks growth (`.` planted,
   `,` germinating, lowercase growing, UPPERCASE mature) and color tracks the
-  crop; `~` fallow field, `.` grass lanes, `#` farmstead, dim `$` parcels for
-  sale. Drag or arrows/WASD to pan (shift = fast), wheel or `+`/`-` to zoom,
-  `C` recenters. Hovering a cell washes its whole field, so the management
-  unit reads at once.
-- **Selection**: click any cell — grey fill plus corner brackets, and the
-  Inspector shows its field: crop, stage, progress, expected yield, soil
-  quality, moisture, fertility, previous crop. `Esc` clears.
+  crop; `~` fallow field, `.` your open ground, dim `$` land for sale, `=`
+  the road and driveway, `#` the farmstead. Drag or arrows/WASD to pan
+  (shift = fast), wheel or `+`/`-` to zoom, `C` recenters. Hovering a cell
+  washes its whole field, so the management unit reads at once.
+- **Field placement**: press `F` (or the Farm Office button, or a parcel
+  window's button) and drag a rectangle on your open ground — previewed
+  green where placeable, red where blocked — to create a field of any
+  width and height. `Esc` cancels. Fields can be plowed under again from
+  their window.
+- **Dirt roads**: fields must be reachable — press `R` and drag to grade a
+  dirt road (`░`) from the driveway or public road out to your fields
+  (shift-drag removes). Unreachable fields show ⚠ in the queue and a
+  warning in their window; their work waits until a road arrives.
+  Reachability chains through adjacent fields.
+- **Equipment**: while an operation runs, its machine (an inverse colored
+  cell — planter, applicator, irrigation rig, harvester) drives the field's
+  serpentine sweep cell by cell, and planting/harvesting repaint the swept
+  cells behind it.
+- **Field window**: click a field and a floating window opens beside the
+  click — the field's crop, stage, progress, expected yield, and condition
+  gauges, plus every action that applies to it: plant (a crop picker with
+  live prices), fertilize, irrigate, harvest, cancel its queued work, plow
+  it under. Clicking open land shows the *parcel* instead: buy it, or jump
+  into placement mode on ground you own. Drag the window by its header;
+  `Esc` or × closes. The map is the way in to all per-field play.
 - **Controls**: pause/resume (`Space`), speed ladder 0.25×–32× (`[` / `]`),
   step +1/+10/+100/N days (stepping pauses first), and New Farm from seed.
-- **Farm Office**: the management surface — queue operations
-  (plant/fertilize/irrigate/harvest per field, crop picker for planting)
-  with live progress and cancel buttons; sell from storage; borrow/repay
-  and size the crew; buy neighboring parcels and equipment upgrades.
+- **Farm Office**: the farm-wide surface — the work queue's overview with
+  cancel buttons; sell from storage; borrow/repay and size the crew;
+  machinery upgrades. Per-field actions live in the field window.
 - **Status bar**: connection, LIVE badge, simulationId, run state, calendar
   date, season, today's weather, cash, debt, camera, zoom, and the last
   command's result (cleared the moment another command goes out).
@@ -63,8 +80,9 @@ app/
   transports/
     RendererTransport.js      transport contract (from biome)
     WebSocketRendererTransport.js  live stream, backoff reconnect (from biome)
-  ui/                         status bar, controls, farm office, inspector,
-                              legend, markets, event log, collapsible, columnResize
+  ui/                         status bar, controls, farm office, floating
+                              field window, legend, markets, event log,
+                              collapsible, columnResize
   styles/
     dracula.css               the Dracula Classic palette (single source of color)
     renderer.css              layout and panel styling (from biome)
@@ -90,7 +108,9 @@ on every frame, so a reconnect resynchronizes by construction. A change of
 `simulation.pause/resume/setSpeed/step/restart`, `cell.inspect`, and
 `farm.command` — an envelope whose inner command (`farm.op.schedule`,
 `farm.op.cancel`, `farm.sell`, `farm.borrow`, `farm.repay`,
-`farm.field.buy`, `farm.equip.buy`, `farm.labor.set`) the sim validates.
+`farm.field.create`, `farm.field.remove`, `farm.parcel.buy`,
+`farm.road.build`, `farm.road.remove`, `farm.equip.buy`,
+`farm.labor.set`) the sim validates.
 
 The renderer imports **nothing** from `@sim/runtime` or `@sim/farm` — it
 speaks the protocol purely as message shapes over the transport

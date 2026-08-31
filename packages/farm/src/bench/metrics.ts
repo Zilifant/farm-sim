@@ -99,16 +99,24 @@ async function macroQuietYear(): Promise<MetricResult> {
 /** A worked farm: a full six-field program keeps the operations system busy. */
 async function macroWorkedYear(): Promise<MetricResult> {
   const sim = await createFarmSim({ seed: SEED });
-  const plan: Array<[number, number]> = [
-    [0, CORN], [1, SOYBEANS], [3, CORN], [4, WHEAT], [6, SOYBEANS], [7, CORN],
+  // A road corridor up the homestead's east side, then six plots tiling the
+  // parcel's open north half (the east pair touch the corridor; the rest
+  // chain through their neighbors).
+  sim.apply({ kind: "farm.road.build", cells: Array.from({ length: 27 }, (_, y) => ({ x: 34, y })) });
+  const plots = [
+    { x: 24, y: 0, w: 3, h: 9 }, { x: 27, y: 0, w: 3, h: 9 }, { x: 30, y: 0, w: 4, h: 9 },
+    { x: 24, y: 9, w: 3, h: 9 }, { x: 27, y: 9, w: 3, h: 9 }, { x: 30, y: 9, w: 4, h: 9 },
   ];
-  for (const [field, crop] of plan) {
-    sim.apply({ kind: "farm.op.schedule", op: OP_PLANT, field, crop });
+  const crops = [CORN, SOYBEANS, CORN, WHEAT, SOYBEANS, CORN];
+  plots.forEach((plot, i) => {
+    sim.apply({ kind: "farm.field.create", ...plot });
+    const field = sim.fields().at(-1)!.id;
+    sim.apply({ kind: "farm.op.schedule", op: OP_PLANT, field, crop: crops[i]! });
     sim.apply({ kind: "farm.op.schedule", op: OP_FERTILIZE, field, crop: 0 });
-  }
+  });
   sim.run(200 - WARMUP_TICKS); // measure() warms the first 30 of these
-  for (const [field] of plan) {
-    sim.apply({ kind: "farm.op.schedule", op: OP_HARVEST, field, crop: 0 });
+  for (const f of sim.fields()) {
+    sim.apply({ kind: "farm.op.schedule", op: OP_HARVEST, field: f.id, crop: 0 });
   }
   return measure(sim, "macro.farm.worked-year", 165);
 }

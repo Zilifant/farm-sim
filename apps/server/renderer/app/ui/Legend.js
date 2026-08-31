@@ -16,6 +16,7 @@ import {
   BUCKET_MATURE,
   CROP_APPEARANCE,
   CROP_CODE_BASE,
+  EQUIPMENT_APPEARANCE,
   TERRAIN_APPEARANCE,
   UNKNOWN_APPEARANCE,
   resolveAppearance,
@@ -54,9 +55,16 @@ export function describeLegend() {
     label: a.label,
   }));
 
+  const machines = Object.values(EQUIPMENT_APPEARANCE).map((a) => ({
+    glyph: a.glyph,
+    colorToken: a.colorToken,
+    label: a.label,
+  }));
+
   return [
     { title: 'Crops', entries: crops },
     { title: 'Land', entries: terrain },
+    { title: 'Equipment', entries: machines },
     { title: 'Overlays', entries: OVERLAY_ENTRIES },
   ];
 }
@@ -69,6 +77,7 @@ export function describeLegend() {
 const OVERLAY_ENTRIES = Object.freeze([
   { glyph: '[]', colorToken: 'bright-yellow', label: 'selected / hovered cell' },
   { glyph: '▒', colorToken: 'foreground', label: "hovered cell's whole field" },
+  { glyph: '▢', colorToken: 'green', label: 'new field being placed (red = blocked)' },
 ]);
 
 export class LegendPanel {
